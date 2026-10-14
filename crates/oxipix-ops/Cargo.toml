@@ -1,0 +1,15 @@
+[package]
+name = "oxipix-ops"
+version = "0.1.0"
+edition = "2024"
+description = "High-performance image processing operations, resizing, spatial filters, and oximedia-cv bridge"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+oxipix-core = { path = "../oxipix-core" }
+oxipix-simd = { path = "../oxipix-simd" }
+oximedia-cv = { version = "0.2.1", optional = true }
+
+[features]
+default = []
+oximedia = ["dep:oximedia-cv"]

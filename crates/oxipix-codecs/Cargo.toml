@@ -1,0 +1,26 @@
+[package]
+name = "oxipix-codecs"
+version = "0.1.0"
+edition = "2024"
+description = "Universal sovereign codec suite: baseline JPEG, PNG, WebP, GIF, TIFF, BMP, QOI, AVIF, and PNM"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+oxipix-core = { path = "../oxipix-core" }
+oxipix-simd = { path = "../oxipix-simd" }
+byteorder = "1.5"
+png = { version = "0.18", optional = true }
+gif = { version = "0.14", optional = true }
+tiff = { version = "0.11", optional = true }
+qoi = { version = "0.4", optional = true }
+zune-jpeg = { version = "0.5.15", optional = true }
+image-webp = { version = "0.2.4", optional = true }
+
+[features]
+default = ["jpeg", "png", "gif", "tiff", "qoi"]
+jpeg = ["dep:zune-jpeg"]
+png = ["dep:png"]
+gif = ["dep:gif"]
+tiff = ["dep:tiff"]
+qoi = ["dep:qoi"]
+webp = ["dep:image-webp"]

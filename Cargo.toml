@@ -1,6 +1,44 @@
+[workspace]
+members = [
+    "crates/oxipix-core",
+    "crates/oxipix-simd",
+    "crates/oxipix-codecs",
+    "crates/oxipix-ops",
+    "crates/oxipix-gpu",
+    "crates/oxipix-compat-image",
+]
+resolver = "2"
+
 [package]
 name = "oxipix"
 version = "0.1.0"
 edition = "2024"
+description = "Sovereign zero-copy accelerated pixmaps, multi-tier SIMD/GPU, and patent-clean image codecs"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
+oxipix-core = { path = "crates/oxipix-core" }
+oxipix-simd = { path = "crates/oxipix-simd" }
+oxipix-codecs = { path = "crates/oxipix-codecs" }
+oxipix-ops = { path = "crates/oxipix-ops" }
+oxipix-gpu = { path = "crates/oxipix-gpu" }
+oxipix-compat-image = { path = "crates/oxipix-compat-image" }
+
+[features]
+default = ["simd", "codecs", "ops", "compat-image"]
+simd = []
+codecs = []
+ops = []
+gpu = ["oxipix-gpu/wgpu"]
+compat-image = []
+
+[dev-dependencies]
+criterion = "0.8.2"
+fast_image_resize = "6.1"
+image = "0.25.8"
+imageproc = "0.27"
+rxing = "0.9.3"
+
+[[bench]]
+name = "crate_comparison"
+harness = false
