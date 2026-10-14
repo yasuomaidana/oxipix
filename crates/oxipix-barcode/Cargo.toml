@@ -1,0 +1,11 @@
+[package]
+name = "oxipix-barcode"
+version = "0.1.0"
+edition = "2024"
+description = "Sovereign 1D and 2D barcode reading, QR code generation, and matrix decoding engine"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+oxipix-core = { path = "../oxipix-core" }
+oxipix-simd = { path = "../oxipix-simd" }
+thiserror = "2.0"

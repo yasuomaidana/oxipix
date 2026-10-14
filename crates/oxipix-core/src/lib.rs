@@ -2,7 +2,7 @@
 #![forbid(unsafe_op_in_unsafe_fn)]
 #![deny(missing_docs)]
 
-use std::alloc::{alloc_zeroed, dealloc, Layout};
+use std::alloc::{Layout, alloc_zeroed, dealloc};
 use std::fmt;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
@@ -107,7 +107,9 @@ pub enum OxipixError {
 
 impl From<std::io::Error> for OxipixError {
     fn from(err: std::io::Error) -> Self {
-        Self::Io { reason: err.to_string() }
+        Self::Io {
+            reason: err.to_string(),
+        }
     }
 }
 
@@ -186,8 +188,11 @@ impl<const ALIGN: usize> AlignedBuffer<ALIGN> {
     /// Allocates an uninitialized, zero-filled buffer with guaranteed alignment.
     pub fn allocate(len: usize) -> Result<Self, OxipixError> {
         if len == 0 {
-            let layout = Layout::from_size_align(0, ALIGN)
-                .map_err(|_| OxipixError::AllocationFailed { bytes: 0, align: ALIGN })?;
+            let layout =
+                Layout::from_size_align(0, ALIGN).map_err(|_| OxipixError::AllocationFailed {
+                    bytes: 0,
+                    align: ALIGN,
+                })?;
             return Ok(Self {
                 ptr: std::ptr::NonNull::dangling().as_ptr(),
                 len: 0,
@@ -195,13 +200,19 @@ impl<const ALIGN: usize> AlignedBuffer<ALIGN> {
             });
         }
 
-        let layout = Layout::from_size_align(len, ALIGN)
-            .map_err(|_| OxipixError::AllocationFailed { bytes: len, align: ALIGN })?;
+        let layout =
+            Layout::from_size_align(len, ALIGN).map_err(|_| OxipixError::AllocationFailed {
+                bytes: len,
+                align: ALIGN,
+            })?;
 
         // Allocate zeroed memory for deterministic initialization.
         let ptr = unsafe { alloc_zeroed(layout) };
         if ptr.is_null() {
-            return Err(OxipixError::AllocationFailed { bytes: len, align: ALIGN });
+            return Err(OxipixError::AllocationFailed {
+                bytes: len,
+                align: ALIGN,
+            });
         }
 
         Ok(Self { ptr, len, layout })
@@ -347,14 +358,28 @@ impl<Format: PixelFormatDescriptor> FrameBuffer<Format, state::Uninitialized> {
         let w = width.get();
         let h = height.get();
         if w == 0 || h == 0 {
-            return Err(OxipixError::ZeroDimensions { width: w, height: h });
+            return Err(OxipixError::ZeroDimensions {
+                width: w,
+                height: h,
+            });
         }
 
-        let stride_bytes = (w as usize).checked_mul(Format::BYTES_PER_PIXEL)
-            .ok_or(OxipixError::AllocationOverflow { width: w, height: h, bytes_per_pixel: Format::BYTES_PER_PIXEL })?;
-        
-        let total_bytes = stride_bytes.checked_mul(h as usize)
-            .ok_or(OxipixError::AllocationOverflow { width: w, height: h, bytes_per_pixel: Format::BYTES_PER_PIXEL })?;
+        let stride_bytes = (w as usize).checked_mul(Format::BYTES_PER_PIXEL).ok_or(
+            OxipixError::AllocationOverflow {
+                width: w,
+                height: h,
+                bytes_per_pixel: Format::BYTES_PER_PIXEL,
+            },
+        )?;
+
+        let total_bytes =
+            stride_bytes
+                .checked_mul(h as usize)
+                .ok_or(OxipixError::AllocationOverflow {
+                    width: w,
+                    height: h,
+                    bytes_per_pixel: Format::BYTES_PER_PIXEL,
+                })?;
 
         let buffer = AlignedBuffer::<64>::allocate(total_bytes)?;
 
@@ -443,15 +468,36 @@ impl<Format: PixelFormatDescriptor> FrameBuffer<Format, state::Initialized> {
     }
 
     /// Creates a zero-allocation strided sub-view of the frame.
-    pub fn sub_view(&self, x: u32, y: u32, w: u32, h: u32) -> Result<SubPixView<'_, Format>, OxipixError> {
-        if x.checked_add(w).ok_or(OxipixError::OutOfBounds { index: usize::MAX, limit: self.width.get() as usize })? > self.width.get() {
-            return Err(OxipixError::OutOfBounds { index: (x + w) as usize, limit: self.width.get() as usize });
+    pub fn sub_view(
+        &self,
+        x: u32,
+        y: u32,
+        w: u32,
+        h: u32,
+    ) -> Result<SubPixView<'_, Format>, OxipixError> {
+        if x.checked_add(w).ok_or(OxipixError::OutOfBounds {
+            index: usize::MAX,
+            limit: self.width.get() as usize,
+        })? > self.width.get()
+        {
+            return Err(OxipixError::OutOfBounds {
+                index: (x + w) as usize,
+                limit: self.width.get() as usize,
+            });
         }
-        if y.checked_add(h).ok_or(OxipixError::OutOfBounds { index: usize::MAX, limit: self.height.get() as usize })? > self.height.get() {
-            return Err(OxipixError::OutOfBounds { index: (y + h) as usize, limit: self.height.get() as usize });
+        if y.checked_add(h).ok_or(OxipixError::OutOfBounds {
+            index: usize::MAX,
+            limit: self.height.get() as usize,
+        })? > self.height.get()
+        {
+            return Err(OxipixError::OutOfBounds {
+                index: (y + h) as usize,
+                limit: self.height.get() as usize,
+            });
         }
 
-        let origin_offset = (y as usize * self.stride.get()) + (x as usize * Format::BYTES_PER_PIXEL);
+        let origin_offset =
+            (y as usize * self.stride.get()) + (x as usize * Format::BYTES_PER_PIXEL);
         Ok(SubPixView {
             data: self.as_bytes(),
             origin_offset,
@@ -525,11 +571,16 @@ impl<'a, Format: PixelFormatDescriptor> SubPixView<'a, Format> {
     #[inline]
     pub fn row(&self, y: usize) -> Result<&'a [u8], OxipixError> {
         if y >= self.height.get() as usize {
-            return Err(OxipixError::OutOfBounds { index: y, limit: self.height.get() as usize });
+            return Err(OxipixError::OutOfBounds {
+                index: y,
+                limit: self.height.get() as usize,
+            });
         }
         let start = self.origin_offset + (y * self.stride.get());
         let end = start + (self.width.get() as usize * Format::BYTES_PER_PIXEL);
-        self.data.get(start..end).ok_or(OxipixError::BufferUnderflow)
+        self.data
+            .get(start..end)
+            .ok_or(OxipixError::BufferUnderflow)
     }
 }
 
@@ -546,8 +597,9 @@ mod tests {
 
     #[test]
     fn test_typestate_buffer_flow() {
-        let uninit = FrameBuffer::<Rgba8, state::Uninitialized>::allocate(PixelWidth(100), PixelHeight(50))
-            .expect("should allocate");
+        let uninit =
+            FrameBuffer::<Rgba8, state::Uninitialized>::allocate(PixelWidth(100), PixelHeight(50))
+                .expect("should allocate");
         let init = uninit.fill_bytes(0xFF);
         assert_eq!(init.as_bytes().len(), 100 * 50 * 4);
         assert_eq!(init.as_bytes()[0], 0xFF);

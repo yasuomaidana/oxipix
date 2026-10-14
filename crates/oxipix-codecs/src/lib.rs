@@ -73,7 +73,12 @@ impl ImageFormat {
         if bytes.len() >= 4 && &bytes[0..4] == b"DDS " {
             return Some(Self::Dds);
         }
-        if bytes.len() >= 4 && bytes[0] == 0x00 && bytes[1] == 0x00 && (bytes[2] == 0x01 || bytes[2] == 0x02) && bytes[3] == 0x00 {
+        if bytes.len() >= 4
+            && bytes[0] == 0x00
+            && bytes[1] == 0x00
+            && (bytes[2] == 0x01 || bytes[2] == 0x02)
+            && bytes[3] == 0x00
+        {
             return Some(Self::Ico);
         }
         if bytes.len() >= 2 && bytes[0] == b'P' && bytes[1] >= b'1' && bytes[1] <= b'7' {
@@ -92,25 +97,40 @@ impl JpegWriter {
         // SOI marker (0xFFD8)
         writer.write_all(&[0xFF, 0xD8]).map_err(OxipixError::from)?;
         // APP0 marker (0xFFE0) + length (16 bytes)
-        writer.write_all(&[0xFF, 0xE0, 0x00, 0x10]).map_err(OxipixError::from)?;
+        writer
+            .write_all(&[0xFF, 0xE0, 0x00, 0x10])
+            .map_err(OxipixError::from)?;
         // JFIF identifier: "JFIF\0" + version 1.01 + units 0 (aspect ratio) + 1x1 aspect ratio + 0 thumbnail
-        writer.write_all(b"JFIF\0\x01\x01\x00\x00\x01\x00\x01\x00\x00").map_err(OxipixError::from)?;
+        writer
+            .write_all(b"JFIF\0\x01\x01\x00\x00\x01\x00\x01\x00\x00")
+            .map_err(OxipixError::from)?;
         Ok(())
     }
 
     /// Writes Start of Frame 0 (SOF0) Baseline Sequential DCT marker.
-    pub fn write_sof0<W: Write>(writer: &mut W, width: PixelWidth, height: PixelHeight, components: u8) -> Result<(), OxipixError> {
+    pub fn write_sof0<W: Write>(
+        writer: &mut W,
+        width: PixelWidth,
+        height: PixelHeight,
+        components: u8,
+    ) -> Result<(), OxipixError> {
         let length = 8 + (3 * components as u16);
         writer.write_all(&[0xFF, 0xC0]).map_err(OxipixError::from)?;
-        writer.write_all(&length.to_be_bytes()).map_err(OxipixError::from)?;
+        writer
+            .write_all(&length.to_be_bytes())
+            .map_err(OxipixError::from)?;
         // Sample precision (8-bit)
         writer.write_all(&[8]).map_err(OxipixError::from)?;
         // Height (16-bit big endian)
         let h = height.get() as u16;
-        writer.write_all(&h.to_be_bytes()).map_err(OxipixError::from)?;
+        writer
+            .write_all(&h.to_be_bytes())
+            .map_err(OxipixError::from)?;
         // Width (16-bit big endian)
         let w = width.get() as u16;
-        writer.write_all(&w.to_be_bytes()).map_err(OxipixError::from)?;
+        writer
+            .write_all(&w.to_be_bytes())
+            .map_err(OxipixError::from)?;
         // Number of components (1 for Grayscale, 3 for YCbCr)
         writer.write_all(&[components]).map_err(OxipixError::from)?;
 
@@ -154,10 +174,20 @@ impl JpegEncoder {
     }
 
     /// Encodes raw 24-bit RGB pixel buffer into standard JPEG bitstream.
-    pub fn encode_rgb24(&self, rgb: &[u8], width: PixelWidth, height: PixelHeight) -> Result<Vec<u8>, OxipixError> {
-        let expected = (width.get() as usize).checked_mul(height.get() as usize)
+    pub fn encode_rgb24(
+        &self,
+        rgb: &[u8],
+        width: PixelWidth,
+        height: PixelHeight,
+    ) -> Result<Vec<u8>, OxipixError> {
+        let expected = (width.get() as usize)
+            .checked_mul(height.get() as usize)
             .and_then(|px| px.checked_mul(3))
-            .ok_or(OxipixError::AllocationOverflow { width: width.get(), height: height.get(), bytes_per_pixel: 3 })?;
+            .ok_or(OxipixError::AllocationOverflow {
+                width: width.get(),
+                height: height.get(),
+                bytes_per_pixel: 3,
+            })?;
 
         if rgb.len() < expected {
             return Err(OxipixError::BufferUnderflow);
@@ -179,12 +209,30 @@ mod tests {
 
     #[test]
     fn test_format_sniffing() {
-        assert_eq!(ImageFormat::from_bytes(&[0xFF, 0xD8, 0xFF, 0xE0]), Some(ImageFormat::Jpeg));
-        assert_eq!(ImageFormat::from_bytes(b"\x89PNG\r\n\x1a\n"), Some(ImageFormat::Png));
-        assert_eq!(ImageFormat::from_bytes(b"RIFF\x00\x00\x00\x00WEBP"), Some(ImageFormat::WebP));
-        assert_eq!(ImageFormat::from_bytes(b"BM\x00\x00"), Some(ImageFormat::Bmp));
-        assert_eq!(ImageFormat::from_bytes(b"qoif\x00\x00"), Some(ImageFormat::Qoi));
-        assert_eq!(ImageFormat::from_bytes(b"farbfeld"), Some(ImageFormat::Farbfeld));
+        assert_eq!(
+            ImageFormat::from_bytes(&[0xFF, 0xD8, 0xFF, 0xE0]),
+            Some(ImageFormat::Jpeg)
+        );
+        assert_eq!(
+            ImageFormat::from_bytes(b"\x89PNG\r\n\x1a\n"),
+            Some(ImageFormat::Png)
+        );
+        assert_eq!(
+            ImageFormat::from_bytes(b"RIFF\x00\x00\x00\x00WEBP"),
+            Some(ImageFormat::WebP)
+        );
+        assert_eq!(
+            ImageFormat::from_bytes(b"BM\x00\x00"),
+            Some(ImageFormat::Bmp)
+        );
+        assert_eq!(
+            ImageFormat::from_bytes(b"qoif\x00\x00"),
+            Some(ImageFormat::Qoi)
+        );
+        assert_eq!(
+            ImageFormat::from_bytes(b"farbfeld"),
+            Some(ImageFormat::Farbfeld)
+        );
     }
 
     #[test]

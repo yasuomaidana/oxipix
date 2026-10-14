@@ -6,6 +6,7 @@ members = [
     "crates/oxipix-ops",
     "crates/oxipix-gpu",
     "crates/oxipix-compat-image",
+    "crates/oxipix-barcode",
 ]
 resolver = "2"
 
@@ -23,21 +24,22 @@ oxipix-codecs = { path = "crates/oxipix-codecs" }
 oxipix-ops = { path = "crates/oxipix-ops" }
 oxipix-gpu = { path = "crates/oxipix-gpu" }
 oxipix-compat-image = { path = "crates/oxipix-compat-image" }
+oxipix-barcode = { path = "crates/oxipix-barcode" }
 
 [features]
-default = ["simd", "codecs", "ops", "compat-image"]
+default = ["simd", "codecs", "ops", "compat-image", "barcode", "gpu"]
 simd = []
 codecs = []
 ops = []
 gpu = ["oxipix-gpu/wgpu"]
 compat-image = []
+barcode = []
 
 [dev-dependencies]
 criterion = "0.8.2"
-fast_image_resize = "6.1"
-image = "0.25.8"
-imageproc = "0.27"
-rxing = "0.9.3"
+serde_json = "1.0"
+testcontainers = "0.28.0"
+tokio = { version = "1.43", features = ["full"] }
 
 [[bench]]
 name = "crate_comparison"

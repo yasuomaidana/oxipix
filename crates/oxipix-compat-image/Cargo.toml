@@ -9,6 +9,5 @@ license = "MIT OR Apache-2.0"
 oxipix-core = { path = "../oxipix-core" }
 oxipix-simd = { path = "../oxipix-simd" }
 oxipix-codecs = { path = "../oxipix-codecs" }
-oxipix-ops = { path = "../oxipix-ops" }
 bytemuck = { version = "1.21", features = ["derive"] }
 thiserror = "2.0"

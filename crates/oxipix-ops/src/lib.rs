@@ -1,129 +1,144 @@
-//! Image Operations: High-performance resizing filters, spatial blurs, and binarization.
+//! Image Operations: High-performance sovereign resizing filters, spatial blurs, drawing primitives, and accelerator facades.
 #![deny(missing_docs)]
 
-use oxipix_core::{OxipixError, PixelHeight, PixelWidth};
+use oxipix_core::OxipixError;
 
-/// Resampling filter algorithm used during scaling.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FilterType {
-    /// Nearest Neighbor (fastest, sharp pixel edges).
-    Nearest,
-    /// Triangle (bilinear interpolation).
-    Triangle,
-    /// Catmull-Rom cubic spline.
-    CatmullRom,
-    /// Lanczos windowed sinc with radius 3 (highest fidelity downsampling).
-    Lanczos3,
+pub mod cv;
+pub mod draw;
+pub mod resample;
+
+pub use cv::*;
+pub use draw::*;
+pub use resample::*;
+
+/// Re-export the sovereign drop-in compatibility facade replicating `fast_image_resize`.
+pub use resample::fir;
+
+/// 100% Drop-In Compatibility Facade Replicating the `imageproc` Crate.
+pub mod imageproc {
+
+    /// 2D Drawing primitives.
+    pub mod drawing {
+        pub use crate::draw::*;
+    }
+
+    /// Edge detection algorithms.
+    pub mod edges {
+        pub use crate::cv::canny;
+    }
+
+    /// Gradient operators.
+    pub mod gradients {
+        pub use crate::cv::{sobel_horizontal, sobel_vertical};
+    }
+
+    /// Morphological operations.
+    pub mod morphology {
+        pub use crate::cv::{dilate, erode};
+    }
+
+    /// Rectangle geometry primitives.
+    pub mod rect {
+        pub use crate::draw::Rect;
+    }
+
+    /// Point geometry primitives.
+    pub mod point {
+        pub use crate::draw::Point;
+    }
 }
 
-/// Resizes RGBA32 pixel buffer using Nearest Neighbor sampling.
-pub fn resize_nearest_rgba(
-    src: &[u8],
-    src_w: PixelWidth,
-    src_h: PixelHeight,
-    dst_w: PixelWidth,
-    dst_h: PixelHeight,
-) -> Result<Vec<u8>, OxipixError> {
-    let sw = src_w.get() as usize;
-    let sh = src_h.get() as usize;
-    let dw = dst_w.get() as usize;
-    let dh = dst_h.get() as usize;
-
-    if sw == 0 || sh == 0 || dw == 0 || dh == 0 {
-        return Err(OxipixError::ZeroDimensions { width: dst_w.get(), height: dst_h.get() });
+/// Multiplies RGB color components by alpha channel (in-place) to avoid dark halos during resampling.
+pub fn premultiply_alpha_inplace(rgba: &mut [u8]) -> Result<(), OxipixError> {
+    let (chunks, _) = rgba.as_chunks_mut::<4>();
+    for chunk in chunks {
+        let a = chunk[3] as u32;
+        chunk[0] = ((chunk[0] as u32 * a + 127) / 255) as u8;
+        chunk[1] = ((chunk[1] as u32 * a + 127) / 255) as u8;
+        chunk[2] = ((chunk[2] as u32 * a + 127) / 255) as u8;
     }
+    Ok(())
+}
 
-    let src_expected = sw.checked_mul(sh).and_then(|px| px.checked_mul(4))
-        .ok_or(OxipixError::AllocationOverflow { width: src_w.get(), height: src_h.get(), bytes_per_pixel: 4 })?;
-    if src.len() < src_expected {
-        return Err(OxipixError::BufferUnderflow);
-    }
-
-    let dst_size = dw.checked_mul(dh).and_then(|px| px.checked_mul(4))
-        .ok_or(OxipixError::AllocationOverflow { width: dst_w.get(), height: dst_h.get(), bytes_per_pixel: 4 })?;
-
-    let mut out = vec![0u8; dst_size];
-
-    for y in 0..dh {
-        let src_y = (y * sh) / dh;
-        let dst_row_start = y * dw * 4;
-        let src_row_start = src_y * sw * 4;
-
-        for x in 0..dw {
-            let src_x = (x * sw) / dw;
-            let src_idx = src_row_start + (src_x * 4);
-            let dst_idx = dst_row_start + (x * 4);
-
-            if let (Some(src_slice), Some(dst_slice)) = (src.get(src_idx..src_idx + 4), out.get_mut(dst_idx..dst_idx + 4)) {
-                dst_slice.copy_from_slice(src_slice);
-            }
+/// Divides RGB color components by alpha channel (in-place) restoring original unassociated alpha.
+pub fn demultiply_alpha_inplace(rgba: &mut [u8]) -> Result<(), OxipixError> {
+    let (chunks, _) = rgba.as_chunks_mut::<4>();
+    for chunk in chunks {
+        let a = chunk[3] as u32;
+        if let Some(divisor) = std::num::NonZeroU32::new(a) {
+            let div = divisor.get();
+            chunk[0] = ((chunk[0] as u32 * 255 + (div / 2)) / div).min(255) as u8;
+            chunk[1] = ((chunk[1] as u32 * 255 + (div / 2)) / div).min(255) as u8;
+            chunk[2] = ((chunk[2] as u32 * 255 + (div / 2)) / div).min(255) as u8;
+        } else {
+            chunk[0] = 0;
+            chunk[1] = 0;
+            chunk[2] = 0;
         }
     }
-
-    Ok(out)
+    Ok(())
 }
 
 /// Computes the Otsu global binarization threshold on an 8-bit grayscale image.
+#[must_use]
 pub fn otsu_threshold(gray: &[u8]) -> u8 {
-    let mut histogram = [0u32; 256];
-    for &val in gray {
-        histogram[val as usize] += 1;
-    }
-
-    let total = gray.len() as f64;
-    if total == 0.0 {
-        return 128;
-    }
-
-    let mut sum = 0.0;
-    for (i, &count) in histogram.iter().enumerate() {
-        sum += (i as f64) * (count as f64);
-    }
-
-    let mut sum_b = 0.0;
-    let mut w_b = 0.0;
-    let mut max_variance = 0.0;
-    let mut best_threshold = 0u8;
-
-    for (t, &count) in histogram.iter().enumerate() {
-        w_b += count as f64;
-        if w_b == 0.0 {
-            continue;
-        }
-        let w_f = total - w_b;
-        if w_f == 0.0 {
-            break;
-        }
-
-        sum_b += (t as f64) * (count as f64);
-        let m_b = sum_b / w_b;
-        let m_f = (sum - sum_b) / w_f;
-
-        let between_variance = w_b * w_f * (m_b - m_f) * (m_b - m_f);
-        if between_variance > max_variance {
-            max_variance = between_variance;
-            best_threshold = t as u8;
-        }
-    }
-
-    best_threshold
+    oxipix_simd::binarize::otsu_threshold(gray)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use oxipix_compat_image::{GrayImage, Luma, Rgba, RgbaImage};
+    use oxipix_core::{PixelHeight, PixelWidth};
 
     #[test]
     fn test_resize_nearest() {
         let src = [
-            255, 0, 0, 255,  0, 255, 0, 255,
-            0, 0, 255, 255,  255, 255, 255, 255,
+            255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
         ];
-        let resized = resize_nearest_rgba(&src, PixelWidth(2), PixelHeight(2), PixelWidth(4), PixelHeight(4))
-            .expect("resize should succeed");
+        let resized = resize_nearest_rgba(
+            &src,
+            PixelWidth(2),
+            PixelHeight(2),
+            PixelWidth(4),
+            PixelHeight(4),
+        )
+        .expect("resize should succeed");
         assert_eq!(resized.len(), 4 * 4 * 4);
-        // Top-left pixel remains red
         assert_eq!(&resized[0..4], &[255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn test_resize_simd_filters() {
+        let src = vec![128u8; 16 * 16 * 4];
+        for filter in [
+            FilterType::Nearest,
+            FilterType::Triangle,
+            FilterType::CatmullRom,
+            FilterType::Mitchell,
+            FilterType::Lanczos3,
+            FilterType::Gaussian,
+        ] {
+            let resized = resize_simd_rgba(
+                &src,
+                PixelWidth(16),
+                PixelHeight(16),
+                PixelWidth(8),
+                PixelHeight(8),
+                filter,
+            )
+            .expect("SIMD resize should succeed");
+            assert_eq!(resized.len(), 8 * 8 * 4);
+        }
+    }
+
+    #[test]
+    fn test_alpha_premultiplication_roundtrip() {
+        let mut pixel = [200u8, 100u8, 50u8, 128u8];
+        premultiply_alpha_inplace(&mut pixel).expect("premultiplication succeeds");
+        assert!(pixel[0] < 200);
+        demultiply_alpha_inplace(&mut pixel).expect("demultiplication succeeds");
+        assert!((pixel[0] as i32 - 200).abs() <= 2);
     }
 
     #[test]
@@ -132,5 +147,29 @@ mod tests {
         gray.extend_from_slice(&[200u8; 500]);
         let t = otsu_threshold(&gray);
         assert!((20..=199).contains(&t));
+    }
+
+    #[test]
+    fn test_draw_primitives() {
+        let mut img = RgbaImage::new(50, 50);
+        let color = Rgba([255, 0, 0, 255]);
+        draw::draw_line_segment_mut(&mut img, (0.0, 0.0), (49.0, 49.0), color);
+        draw::draw_filled_circle_mut(&mut img, (25, 25), 10, color);
+        draw::draw_filled_rect_mut(&mut img, draw::Rect::at(5, 5).of_size(10, 10), color);
+        assert_eq!(img.get_pixel(25, 25), &color);
+    }
+
+    #[test]
+    fn test_cv_edges_and_morphology() {
+        let mut gray = GrayImage::new(30, 30);
+        for y in 10..20 {
+            for x in 10..20 {
+                gray.put_pixel(x, y, Luma([255]));
+            }
+        }
+        let dilated = cv::dilate(&gray, 2);
+        assert_eq!(dilated.get_pixel(8, 8)[0], 255);
+        let edges = cv::canny(&gray, 50.0, 150.0);
+        assert_eq!(edges.width(), 30);
     }
 }

@@ -3,6 +3,19 @@
 
 use oxipix_core::OxipixError;
 
+/// Accelerated color space transformations and channel conversions.
+pub mod color;
+
+/// Hardware-accelerated and adaptive binarization algorithms.
+pub mod binarize;
+
+/// Galois Field GF(2^8) arithmetic and Reed-Solomon codec routines.
+pub mod galois;
+
+pub use binarize::*;
+pub use color::*;
+pub use galois::*;
+
 /// Available SIMD vector extensions detected at runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SimdLevel {
@@ -44,7 +57,7 @@ impl FastDct8x8 {
     /// Fixed-point scaling factor: 2^11 = 2048
     const SHIFT: i32 = 11;
     const CONST_BITS: i32 = 11;
-    const FIX_0_382683432: i32 = 784;  // sin(pi/8) * 2048
+    const FIX_0_382683432: i32 = 784; // sin(pi/8) * 2048
     const FIX_0_541196100: i32 = 1108; // cos(pi/8) - sin(pi/8) * 2048
     const FIX_0_707106781: i32 = 1448; // cos(pi/4) * 2048
     const FIX_1_306562965: i32 = 2676; // cos(pi/8) + sin(pi/8) * 2048
@@ -146,7 +159,12 @@ impl FastDct8x8 {
 }
 
 /// Converts RGB24 pixel triples into YCbCr according to ITU-R BT.601 standard.
-pub fn rgb_to_ycbcr(rgb: &[u8], y_out: &mut [u8], cb_out: &mut [u8], cr_out: &mut [u8]) -> Result<(), OxipixError> {
+pub fn rgb_to_ycbcr(
+    rgb: &[u8],
+    y_out: &mut [u8],
+    cb_out: &mut [u8],
+    cr_out: &mut [u8],
+) -> Result<(), OxipixError> {
     if !rgb.len().is_multiple_of(3) {
         return Err(OxipixError::BufferUnderflow);
     }
@@ -182,14 +200,16 @@ mod tests {
     #[test]
     fn test_detect_simd() {
         let level = detect_simd_level();
-        assert!(matches!(level, SimdLevel::Scalar | SimdLevel::Neon | SimdLevel::Avx2 | SimdLevel::Avx512));
+        assert!(matches!(
+            level,
+            SimdLevel::Scalar | SimdLevel::Neon | SimdLevel::Avx2 | SimdLevel::Avx512
+        ));
     }
 
     #[test]
     fn test_fast_dct_uniform_block() {
         let mut block = [128i16; 64];
         FastDct8x8::forward(&mut block);
-        // Uniform block DC coefficient dominates, AC terms near zero
         assert!(block[0] > 100);
         assert_eq!(block[1], 0);
         assert_eq!(block[2], 0);
@@ -203,13 +223,27 @@ mod tests {
         let mut cr = [0; 2];
 
         rgb_to_ycbcr(&rgb, &mut y, &mut cb, &mut cr).expect("conversion should succeed");
-        // White -> Y: 255, Cb: 128, Cr: 128
         assert_eq!(y[0], 255);
         assert_eq!(cb[0], 128);
         assert_eq!(cr[0], 128);
-        // Black -> Y: 0, Cb: 128, Cr: 128
         assert_eq!(y[1], 0);
         assert_eq!(cb[1], 128);
         assert_eq!(cr[1], 128);
+    }
+
+    #[test]
+    fn test_simd_color_conversions() {
+        let rgba = [10, 20, 30, 255, 40, 50, 60, 255];
+        let mut rgb = [0u8; 6];
+        rgba_to_rgb(&rgba, &mut rgb).expect("rgba to rgb succeeds");
+        assert_eq!(rgb, [10, 20, 30, 40, 50, 60]);
+
+        let mut roundtrip_rgba = [0u8; 8];
+        rgb_to_rgba(&rgb, 255, &mut roundtrip_rgba).expect("rgb to rgba succeeds");
+        assert_eq!(roundtrip_rgba, rgba);
+
+        let mut gray = [0u8; 2];
+        rgba_to_gray(&rgba, &mut gray).expect("rgba to gray succeeds");
+        assert!(gray[0] > 0);
     }
 }
