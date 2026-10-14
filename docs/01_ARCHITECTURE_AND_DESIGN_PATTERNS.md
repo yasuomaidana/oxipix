@@ -1,8 +1,45 @@
-# Architecture & Design Patterns Specification: `oxipix`
+# Architecture & Design Patterns Specification: `oxipix` Workspace
 
 ## 1. Persona & Structural Architecture
 
 `oxipix` is architected under strict **Principal Software Architect** and **Code Quality Auditor** guidelines to ensure idiomatic Rust ergonomics, deterministic memory behavior, zero unverified assumptions, and low algorithmic complexity.
+
+To prevent the anti-pattern of the **Monolithic God-Crate** (which plagued the upstream `image` crate), `oxipix` is partitioned into a sovereign, highly cohesive multi-crate workspace.
+
+```mermaid\ngraph TD
+    subgraph OxipixWorkspace["Sovereign oxipix Workspace"]
+        Core["oxipix-core<br/>(AlignedBuffer, Typestate FrameBuffer, SubPixView)"]
+        SIMD["oxipix-simd<br/>(NEON, AVX2, AVX-512, oximedia-simd bridge)"]
+        Codecs["oxipix-codecs<br/>(Baseline JPEG, PNG, WebP, GIF, TIFF, BMP, etc.)"]
+        Ops["oxipix-ops<br/>(Resize, Convolutions, Filters, oximedia-cv bridge)"]
+        GPU["oxipix-gpu<br/>(wgpu Compute Pipelines, Unified Memory)"]
+        Compat["oxipix-compat-image<br/>(100% Drop-in image Replacement Facade)"]
+        Umbrella["oxipix<br/>(Top-level Sovereign Facade)"]
+    end
+
+    Core --> SIMD
+    Core --> Codecs
+    Core --> Ops
+    SIMD --> Codecs
+    SIMD --> Ops
+    Ops --> GPU
+    Core --> Compat
+    Codecs --> Compat
+    Ops --> Compat
+    Compat --> Umbrella
+```
+
+### 1.1 Crate Decomposition & Responsibility Matrix
+
+| Crate | Primary Responsibility | Dependencies | Complexity Target |
+|:------|:-----------------------|:-------------|:------------------|
+| **`oxipix-core`** | 64-byte aligned SIMD memory, `Typestate` `FrameBuffer`, zero-allocation `SubPixView`, pixel format traits (`PixelFormat`), RAII wrappers. | `bytemuck`, `thiserror`, `zeroize` | CC $\le 6$, Cognitive $\le 8$ |
+| **`oxipix-simd`** | Vectorized kernels (ARM NEON, AVX2, AVX-512), fast integer DCT (AAN), SIMD color conversion (RGB $\leftrightarrow$ YCbCr). | `oxipix-core`, `oximedia-simd` | CC $\le 8$, Cognitive $\le 10$ |
+| **`oxipix-codecs`** | Clean-room baseline JPEG encoder/decoder, federated pure-Rust decoders/encoders (PNG, WebP, GIF, TIFF, BMP, QOI, AVIF, PNM, etc.). | `oxipix-core`, `oxipix-simd`, `zune-jpeg`, `png`, `image-webp`, `tiff`, `gif`, `qoi`, `ravif` | CC $\le 10$, Cognitive $\le 12$ |
+| **`oxipix-ops`** | Image manipulation (Lanczos3/Bicubic resizing, affine transforms, blur, unsharpen, Otsu/Bradley-Roth binarization). | `oxipix-core`, `oxipix-simd`, `oximedia-cv` | CC $\le 8$, Cognitive $\le 10$ |
+| **`oxipix-gpu`** | Hardware GPU acceleration via `wgpu`, compute shader convolutions, unified memory host-to-device zero-copy mappings. | `oxipix-core`, `wgpu` | CC $\le 7$, Cognitive $\le 9$ |
+| **`oxipix-compat-image`**| 100% drop-in API replacement for `image` (`DynamicImage`, `ImageBuffer`, `GenericImageView`, `imageops`, `ImageReader`). Passes all 569 `image` tests. | All workspace crates | CC $\le 9$, Cognitive $\le 12$ |
+| **`oxipix`** | Clean sovereign public facade re-exporting core capabilities with ergonomic defaults. | All workspace crates | CC $\le 5$, Cognitive $\le 6$ |
 
 ---
 
@@ -35,8 +72,8 @@ pub struct FrameBuffer<Format, State = state::Initialized> {
 
 impl<Format> FrameBuffer<Format, state::Uninitialized> {
     /// Allocates a new 64-byte aligned uninitialized buffer.
-    pub fn allocate(width: PixelWidth, height: PixelHeight) -> Result<Self, PixError> {
-        // Validation logic (CC <= 5)
+    pub fn allocate(width: PixelWidth, height: PixelHeight) -> Result<Self, OxipixError> {
+        // Checked allocation without panics (CC <= 4)
     }
 
     /// Initializes buffer memory with deterministic pixel values, transitioning to `Initialized`.
@@ -68,14 +105,13 @@ pub struct SubPixView<'a, Format> {
 impl<'a, Format: PixelType> SubPixView<'a, Format> {
     /// Returns a slice to an individual row in zero allocation.
     #[inline]
-    pub fn row(&self, y: usize) -> Result<&'a [Format::Unit], PixError> {
+    pub fn row(&self, y: usize) -> Result<&'a [Format::Unit], OxipixError> {
         if y >= self.height.get() as usize {
-            return Err(PixError::OutOfBounds { index: y, limit: self.height.get() as usize });
+            return Err(OxipixError::OutOfBounds { index: y, limit: self.height.get() as usize });
         }
         let start = y * self.stride.get();
         let end = start + (self.width.get() as usize * Format::BYTES_PER_PIXEL);
-        // Safe checked slice borrowing without panics
-        let slice = self.data.get(start..end).ok_or(PixError::BufferUnderflow)?;
+        let slice = self.data.get(start..end).ok_or(OxipixError::BufferUnderflow)?;
         Ok(bytemuck::cast_slice(slice))
     }
 }
@@ -103,9 +139,9 @@ pub struct PixelStride(pub usize);
 pub struct JpegQuality(u8);
 
 impl JpegQuality {
-    pub fn new(quality: u8) -> Result<Self, PixError> {
+    pub fn new(quality: u8) -> Result<Self, OxipixError> {
         if quality > 100 {
-            return Err(PixError::InvalidQuality { quality });
+            return Err(OxipixError::InvalidQuality { quality });
         }
         Ok(Self(quality.clamp(1, 100)))
     }
@@ -132,11 +168,20 @@ pub enum OxipixError {
     #[error("Out of bounds access at index {index}, upper limit {limit}")]
     OutOfBounds { index: usize, limit: usize },
 
+    #[error("Buffer underflow while accessing row data")]
+    BufferUnderflow,
+
+    #[error("Invalid JPEG quality parameter: {quality} (must be 1..=100)")]
+    InvalidQuality { quality: u8 },
+
     #[error("Codec encoding failure: {reason}")]
     EncodingError { reason: String },
 
     #[error("Codec decoding failure: {reason}")]
     DecodingError { reason: String },
+
+    #[error("Unsupported image format: {format}")]
+    UnsupportedFormat { format: String },
 
     #[error("Unsupported color format conversion from {from:?} to {to:?}")]
     UnsupportedColorConversion { from: String, to: String },
@@ -146,6 +191,9 @@ pub enum OxipixError {
 
     #[error("Hardware GPU accelerator error: {0}")]
     GpuAccelerator(String),
+
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
 }
 ```
 
@@ -155,21 +203,21 @@ pub enum OxipixError {
 
 During code generation and automated CI auditing, the following anti-patterns are strictly guarded against:
 
-| Anti-Pattern | Violation in Existing Code | Strict `oxipix` Rule |
-|:-------------|:---------------------------|:---------------------|
+| Anti-Pattern | Violation in Monolithic `image` | Strict `oxipix` Rule |
+|:-------------|:--------------------------------|:---------------------|
 | **Excessive Cloning (`.clone()`)** | Calling `sub_image.to_image()` duplicates entire pixel buffers on every crop. | Use `SubPixView<'a>` for zero-copy borrows, or `Arc`-based `SharedFrame` with copy-on-write (`make_mut()`). |
-| **God Structs & God Functions** | Single files handling decoders, encoders, filters, and pixel loops in > 800 LOC. | Modularity: max 800 lines per file; max 80 lines per function. Single Responsibility Principle. |
-| **Hidden Panics (`unwrap()`, `[i]`)** | Naked slice indexing causes panic if image dimensions are malformed. | Mandatory boundary validation with `.get()` returning `PixError::OutOfBounds`. Zero panics. |
+| **God Structs & God Modules** | Single files handling decoders, encoders, filters, and pixel loops in > 800 LOC. | Modularity: max 800 lines per file; max 80 lines per function. Single Responsibility Principle. |
+| **Hidden Panics (`unwrap()`, `[i]`)**| Naked slice indexing causes panic if image dimensions are malformed. | Mandatory boundary validation with `.get()` returning `OxipixError::OutOfBounds`. Zero panics. |
 | **Stringly-Typed Interfaces** | Specifying formats as `"jpeg"`, `"png"` strings. | Strongly typed enum discriminators (`ImageFormat::Jpeg`, `PixelFormat::Rgba8`). |
 
 ---
 
 ## 4. Complexity Thresholds & Verification Metrics
 
-In accordance with `/pattern-complexity-auditor`, all code in `oxipix` must adhere to the following metric thresholds:
+In accordance with `/pattern-complexity-auditor`, all code in the `oxipix` workspace must adhere to the following metric thresholds:
 
-1. **Cyclomatic Complexity (CC)**: $\le 10$ per function (hard limit $\le 15$).
-2. **Cognitive Complexity**: $\le 15$ per function (hard limit $\le 20$).
+1. **Cyclomatic Complexity (CC)**: $\le 10$ per function (hard ceiling $\le 15$).
+2. **Cognitive Complexity**: $\le 15$ per function (hard ceiling $\le 20$).
 3. **Lines of Code (LOC)**:
    - Functions: $\le 80$ lines.
    - Files: $\le 800$ lines.
