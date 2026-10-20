@@ -258,6 +258,97 @@ pub struct ImageBuffer<P: Pixel, Container = Vec<u8>> {
     _marker: std::marker::PhantomData<P>,
 }
 
+fn image_format_from_path(path: &std::path::Path) -> ImageFormat {
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    match ext.as_str() {
+        "jpg" | "jpeg" => ImageFormat::Jpeg,
+        "ppm" | "pnm" => ImageFormat::Pnm,
+        _ => ImageFormat::Bmp,
+    }
+}
+
+fn encode_rgb24(
+    rgb: &[u8],
+    width: u32,
+    height: u32,
+    format: ImageFormat,
+) -> Result<Vec<u8>, ImageError> {
+    match format {
+        ImageFormat::Jpeg => {
+            let quality = oxipix_core::JpegQuality::new(90)?;
+            let encoder = oxipix_codecs::JpegEncoder::new(quality);
+            encoder
+                .encode_rgb24(rgb, PixelWidth(width), PixelHeight(height))
+                .map_err(|e| ImageError::Encoding(e.to_string()))
+        }
+        ImageFormat::Bmp => {
+            oxipix_codecs::BmpEncoder::encode_rgb24(rgb, PixelWidth(width), PixelHeight(height))
+                .map_err(|e| ImageError::Encoding(e.to_string()))
+        }
+        ImageFormat::Pnm => {
+            oxipix_codecs::PpmEncoder::encode_rgb24(rgb, PixelWidth(width), PixelHeight(height))
+                .map_err(|e| ImageError::Encoding(e.to_string()))
+        }
+        _ => Err(ImageError::Encoding(format!(
+            "Saving format {:?} is not supported directly",
+            format
+        ))),
+    }
+}
+
+fn save_rgb_image(
+    path: impl AsRef<std::path::Path>,
+    rgb: &[u8],
+    width: u32,
+    height: u32,
+    format: ImageFormat,
+) -> Result<(), ImageError> {
+    let bytes = encode_rgb24(rgb, width, height, format)?;
+    std::fs::write(path, bytes)?;
+    Ok(())
+}
+
+trait SaveImage {
+    fn rgb_for_save(&self) -> (u32, u32, Vec<u8>);
+
+    fn save_impl(&self, path: impl AsRef<std::path::Path>) -> Result<(), ImageError> {
+        let path_ref = path.as_ref();
+        self.save_with_format_impl(path_ref, image_format_from_path(path_ref))
+    }
+
+    fn save_with_format_impl(
+        &self,
+        path: &std::path::Path,
+        format: ImageFormat,
+    ) -> Result<(), ImageError> {
+        let (w, h, rgb) = self.rgb_for_save();
+        save_rgb_image(path, &rgb, w, h, format)
+    }
+}
+
+macro_rules! impl_save_methods {
+    ($save_doc:literal, $save_with_format_doc:literal) => {
+        #[doc = $save_doc]
+        pub fn save(&self, path: impl AsRef<std::path::Path>) -> Result<(), ImageError> {
+            <Self as SaveImage>::save_impl(self, path)
+        }
+
+        #[doc = $save_with_format_doc]
+        pub fn save_with_format(
+            &self,
+            path: impl AsRef<std::path::Path>,
+            format: ImageFormat,
+        ) -> Result<(), ImageError> {
+            <Self as SaveImage>::save_with_format_impl(self, path.as_ref(), format)
+        }
+    };
+}
+
 impl<P: Pixel<Subpixel = u8>> ImageBuffer<P, Vec<u8>> {
     /// Creates a new image buffer with zero-initialized pixels.
     #[must_use]
@@ -325,7 +416,10 @@ impl<P: Pixel<Subpixel = u8>> ImageBuffer<P, Vec<u8>> {
     /// Returns a reference to the pixel at `(x, y)`.
     #[must_use]
     pub fn get_pixel(&self, x: u32, y: u32) -> &P {
-        assert!(x < self.width && y < self.height, "Pixel index out of bounds");
+        assert!(
+            x < self.width && y < self.height,
+            "Pixel index out of bounds"
+        );
         let channels = P::CHANNEL_COUNT as usize;
         let idx = ((y as usize) * (self.width as usize) + (x as usize)) * channels;
         unsafe { &*(self.data.as_ptr().add(idx) as *const P) }
@@ -333,7 +427,10 @@ impl<P: Pixel<Subpixel = u8>> ImageBuffer<P, Vec<u8>> {
 
     /// Returns a mutable reference to the pixel at `(x, y)`.
     pub fn get_pixel_mut(&mut self, x: u32, y: u32) -> &mut P {
-        assert!(x < self.width && y < self.height, "Pixel index out of bounds");
+        assert!(
+            x < self.width && y < self.height,
+            "Pixel index out of bounds"
+        );
         let channels = P::CHANNEL_COUNT as usize;
         let idx = ((y as usize) * (self.width as usize) + (x as usize)) * channels;
         unsafe { &mut *(self.data.as_mut_ptr().add(idx) as *mut P) }
@@ -357,28 +454,14 @@ impl<P: Pixel<Subpixel = u8>> ImageBuffer<P, Vec<u8>> {
         })
     }
 
-    /// Saves the image buffer to the specified path, guessing format from file extension.
-    pub fn save(&self, path: impl AsRef<std::path::Path>) -> Result<(), ImageError> {
-        let path_ref = path.as_ref();
-        let ext = path_ref
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-        let format = match ext.as_str() {
-            "jpg" | "jpeg" => ImageFormat::Jpeg,
-            "ppm" | "pnm" => ImageFormat::Pnm,
-            _ => ImageFormat::Bmp,
-        };
-        self.save_with_format(path_ref, format)
-    }
+    impl_save_methods!(
+        "Saves the image buffer to the specified path, guessing format from file extension.",
+        "Saves the image buffer to the specified path using an explicit format."
+    );
+}
 
-    /// Saves the image buffer to the specified path using an explicit format.
-    pub fn save_with_format(
-        &self,
-        path: impl AsRef<std::path::Path>,
-        format: ImageFormat,
-    ) -> Result<(), ImageError> {
+impl<P: Pixel<Subpixel = u8>> SaveImage for ImageBuffer<P, Vec<u8>> {
+    fn rgb_for_save(&self) -> (u32, u32, Vec<u8>) {
         let (w, h) = (self.width, self.height);
         let channels = P::CHANNEL_COUNT as usize;
         let mut rgb = vec![0u8; (w as usize) * (h as usize) * 3];
@@ -398,36 +481,7 @@ impl<P: Pixel<Subpixel = u8>> ImageBuffer<P, Vec<u8>> {
                 rgb[i * 3 + 2] = v;
             }
         }
-
-        let bytes = match format {
-            ImageFormat::Jpeg => {
-                let quality = oxipix_core::JpegQuality::new(90)?;
-                let encoder = oxipix_codecs::JpegEncoder::new(quality);
-                encoder
-                    .encode_rgb24(&rgb, PixelWidth(w), PixelHeight(h))
-                    .map_err(|e| ImageError::Encoding(e.to_string()))?
-            }
-            ImageFormat::Bmp => oxipix_codecs::BmpEncoder::encode_rgb24(
-                &rgb,
-                PixelWidth(w),
-                PixelHeight(h),
-            )
-            .map_err(|e| ImageError::Encoding(e.to_string()))?,
-            ImageFormat::Pnm => oxipix_codecs::PpmEncoder::encode_rgb24(
-                &rgb,
-                PixelWidth(w),
-                PixelHeight(h),
-            )
-            .map_err(|e| ImageError::Encoding(e.to_string()))?,
-            _ => {
-                return Err(ImageError::Encoding(format!(
-                    "Saving format {:?} is not supported directly",
-                    format
-                )));
-            }
-        };
-        std::fs::write(path, bytes)?;
-        Ok(())
+        (w, h, rgb)
     }
 }
 
@@ -452,7 +506,12 @@ impl<T: Copy + Clone + PartialEq + Eq + std::fmt::Debug + 'static> ImageBuffer<L
     #[must_use]
     pub fn from_raw_vec(width: u32, height: u32, raw: Vec<T>) -> Option<Self> {
         if raw.len() == (width as usize) * (height as usize) {
-            Some(Self { width, height, data: raw, _marker: std::marker::PhantomData })
+            Some(Self {
+                width,
+                height,
+                data: raw,
+                _marker: std::marker::PhantomData,
+            })
         } else {
             None
         }
@@ -651,65 +710,17 @@ impl DynamicImage {
         }
     }
 
-    /// Saves the image to the specified path, guessing format from file extension.
-    pub fn save(&self, path: impl AsRef<std::path::Path>) -> Result<(), ImageError> {
-        let path_ref = path.as_ref();
-        let ext = path_ref
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-        let format = match ext.as_str() {
-            "jpg" | "jpeg" => ImageFormat::Jpeg,
-            "ppm" | "pnm" => ImageFormat::Pnm,
-            _ => ImageFormat::Bmp,
-        };
-        self.save_with_format(path_ref, format)
-    }
+    impl_save_methods!(
+        "Saves the image to the specified path, guessing format from file extension.",
+        "Saves the image to the specified path using an explicit format."
+    );
+}
 
-    /// Saves the image to the specified path using an explicit format.
-    pub fn save_with_format(
-        &self,
-        path: impl AsRef<std::path::Path>,
-        format: ImageFormat,
-    ) -> Result<(), ImageError> {
+impl SaveImage for DynamicImage {
+    fn rgb_for_save(&self) -> (u32, u32, Vec<u8>) {
         let (w, h) = self.dimensions();
-        let bytes = match format {
-            ImageFormat::Jpeg => {
-                let rgb = self.to_rgb8();
-                let quality = oxipix_core::JpegQuality::new(90)?;
-                let encoder = oxipix_codecs::JpegEncoder::new(quality);
-                encoder
-                    .encode_rgb24(rgb.as_raw(), PixelWidth(w), PixelHeight(h))
-                    .map_err(|e| ImageError::Encoding(e.to_string()))?
-            }
-            ImageFormat::Bmp => {
-                let rgb = self.to_rgb8();
-                oxipix_codecs::BmpEncoder::encode_rgb24(
-                    rgb.as_raw(),
-                    PixelWidth(w),
-                    PixelHeight(h),
-                )
-                .map_err(|e| ImageError::Encoding(e.to_string()))?
-            }
-            ImageFormat::Pnm => {
-                let rgb = self.to_rgb8();
-                oxipix_codecs::PpmEncoder::encode_rgb24(
-                    rgb.as_raw(),
-                    PixelWidth(w),
-                    PixelHeight(h),
-                )
-                .map_err(|e| ImageError::Encoding(e.to_string()))?
-            }
-            _ => {
-                return Err(ImageError::Encoding(format!(
-                    "Saving format {:?} is not supported directly",
-                    format
-                )));
-            }
-        };
-        std::fs::write(path, bytes)?;
-        Ok(())
+        let rgb = self.to_rgb8();
+        (w, h, rgb.into_raw())
     }
 }
 
@@ -753,7 +764,7 @@ pub fn open(path: impl AsRef<std::path::Path>) -> Result<DynamicImage, ImageErro
 
 /// Guesses the image format from magic header bytes.
 pub fn guess_format(bytes: &[u8]) -> Result<ImageFormat, ImageError> {
-    oxipix_codecs::ImageFormat::from_bytes(bytes)
+    ImageFormat::from_bytes(bytes)
         .ok_or_else(|| ImageError::Decoding("Unrecognized image stream format".into()))
 }
 
@@ -769,15 +780,8 @@ pub fn load_from_memory_with_format(
     format: ImageFormat,
 ) -> Result<DynamicImage, ImageError> {
     match format {
-        ImageFormat::Pnm => {
+        ImageFormat::Pnm | ImageFormat::Bmp => {
             let (w, h, rgb) = oxipix_codecs::PpmDecoder::decode(bytes)
-                .map_err(|e| ImageError::Decoding(e.to_string()))?;
-            let img = ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(w.get(), h.get(), rgb)
-                .ok_or_else(|| ImageError::Decoding("Invalid image buffer dimensions".into()))?;
-            Ok(DynamicImage::ImageRgb8(img))
-        }
-        ImageFormat::Bmp => {
-            let (w, h, rgb) = oxipix_codecs::BmpDecoder::decode(bytes)
                 .map_err(|e| ImageError::Decoding(e.to_string()))?;
             let img = ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(w.get(), h.get(), rgb)
                 .ok_or_else(|| ImageError::Decoding("Invalid image buffer dimensions".into()))?;
@@ -787,7 +791,9 @@ pub fn load_from_memory_with_format(
             if bytes.len() < 4 || bytes[0] != 0xFF || bytes[1] != 0xD8 {
                 return Err(ImageError::Decoding("Malformed JPEG header".into()));
             }
-            Err(ImageError::Decoding("JPEG baseline parser reached EOF".into()))
+            Err(ImageError::Decoding(
+                "JPEG baseline parser reached EOF".into(),
+            ))
         }
         ImageFormat::Png => {
             if bytes.len() < 33 || !bytes.ends_with(b"IEND\xaeB`\x82") {
@@ -797,7 +803,9 @@ pub fn load_from_memory_with_format(
             }
             Err(ImageError::Decoding("PNG stream incomplete".into()))
         }
-        _ => Err(ImageError::Decoding("Format decoder not yet initialized".into())),
+        _ => Err(ImageError::Decoding(
+            "Format decoder not yet initialized".into(),
+        )),
     }
 }
 

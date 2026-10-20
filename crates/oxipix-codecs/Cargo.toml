@@ -7,8 +7,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 oxipix-core = { path = "../oxipix-core" }
-oxipix-simd = { path = "../oxipix-simd" }
-byteorder = "1.5"
+rayon = "1.10"
 
 [features]
 default = []
