@@ -477,3 +477,47 @@ impl FullJpegEncoder {
         Ok(out)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_forward_dct_uniform_block() {
+        let block = [100.0f32; 64];
+        let mut out = [0.0f32; 64];
+        forward_dct(&block, &mut out);
+
+        // DC coefficient must be 8 * 100.0 = 800.0
+        assert!(
+            (out[0] - 800.0).abs() < 1e-3,
+            "DC coefficient mismatch: {}",
+            out[0]
+        );
+
+        // All AC coefficients must be zero
+        for (i, &ac) in out[1..].iter().enumerate() {
+            assert!(
+                ac.abs() < 1e-3,
+                "AC coefficient at index {} should be 0, got {}",
+                i + 1,
+                ac
+            );
+        }
+    }
+
+    #[test]
+    fn test_quantize_and_zigzag_dc_only() {
+        let mut dct = [0.0f32; 64];
+        dct[0] = 800.0; // DC only
+        let q_table = BASE_LUMA_QUANT;
+
+        let zz = quantize_and_zigzag(&dct, &q_table);
+        // DC is at zigzag index 0
+        assert_eq!(zz[0], (800.0 / q_table[0] as f32).round() as i16);
+        // All AC must be 0
+        for (i, &ac) in zz[1..].iter().enumerate() {
+            assert_eq!(ac, 0, "AC at zigzag index {} should be 0", i + 1);
+        }
+    }
+}
