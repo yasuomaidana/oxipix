@@ -6,36 +6,21 @@ use rayon::prelude::*;
 use oxipix_core::{JpegQuality, OxipixError, PixelHeight, PixelWidth};
 
 const BASE_LUMA_QUANT: [u8; 64] = [
-    16, 11, 10, 16, 24, 40, 51, 61,
-    12, 12, 14, 19, 26, 58, 60, 55,
-    14, 13, 16, 24, 40, 57, 69, 56,
-    14, 17, 22, 29, 51, 87, 80, 62,
-    18, 22, 37, 56, 68, 109, 103, 77,
-    24, 35, 55, 64, 81, 104, 113, 92,
-    49, 64, 78, 87, 103, 121, 120, 101,
-    72, 92, 95, 98, 112, 100, 103, 99,
+    16, 11, 10, 16, 24, 40, 51, 61, 12, 12, 14, 19, 26, 58, 60, 55, 14, 13, 16, 24, 40, 57, 69, 56,
+    14, 17, 22, 29, 51, 87, 80, 62, 18, 22, 37, 56, 68, 109, 103, 77, 24, 35, 55, 64, 81, 104, 113,
+    92, 49, 64, 78, 87, 103, 121, 120, 101, 72, 92, 95, 98, 112, 100, 103, 99,
 ];
 
 const BASE_CHROMA_QUANT: [u8; 64] = [
-    17, 18, 24, 47, 99, 99, 99, 99,
-    18, 21, 26, 66, 99, 99, 99, 99,
-    24, 26, 56, 99, 99, 99, 99, 99,
-    47, 66, 99, 99, 99, 99, 99, 99,
-    99, 99, 99, 99, 99, 99, 99, 99,
-    99, 99, 99, 99, 99, 99, 99, 99,
-    99, 99, 99, 99, 99, 99, 99, 99,
-    99, 99, 99, 99, 99, 99, 99, 99,
+    17, 18, 24, 47, 99, 99, 99, 99, 18, 21, 26, 66, 99, 99, 99, 99, 24, 26, 56, 99, 99, 99, 99, 99,
+    47, 66, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
+    99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
 ];
 
 const ZIGZAG: [usize; 64] = [
-     0,  1,  8, 16,  9,  2,  3, 10,
-    17, 24, 32, 25, 18, 11,  4,  5,
-    12, 19, 26, 33, 40, 48, 41, 34,
-    27, 20, 13,  6,  7, 14, 21, 28,
-    35, 42, 49, 56, 57, 50, 43, 36,
-    29, 22, 15, 23, 30, 37, 44, 51,
-    58, 59, 52, 45, 38, 31, 39, 46,
-    53, 60, 61, 54, 47, 55, 62, 63,
+    0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20,
+    13, 6, 7, 14, 21, 28, 35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59,
+    52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63,
 ];
 
 // Standard DC Luminance Huffman bits and values
@@ -49,52 +34,32 @@ const DC_CHROMA_VALS: [u8; 12] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 // Standard AC Luminance Huffman bits and values
 const AC_LUMA_BITS: [u8; 16] = [0, 2, 1, 3, 3, 2, 4, 3, 5, 5, 4, 4, 0, 0, 1, 125];
 const AC_LUMA_VALS: [u8; 162] = [
-    0x01, 0x02, 0x03, 0x00, 0x04, 0x11, 0x05, 0x12,
-    0x21, 0x31, 0x41, 0x06, 0x13, 0x51, 0x61, 0x07,
-    0x22, 0x71, 0x14, 0x32, 0x81, 0x91, 0xa1, 0x08,
-    0x23, 0x42, 0xb1, 0xc1, 0x15, 0x52, 0xd1, 0xf0,
-    0x24, 0x33, 0x62, 0x72, 0x82, 0x09, 0x0a, 0x16,
-    0x17, 0x18, 0x19, 0x1a, 0x25, 0x26, 0x27, 0x28,
-    0x29, 0x2a, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39,
-    0x3a, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49,
-    0x4a, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59,
-    0x5a, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69,
-    0x6a, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79,
-    0x7a, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89,
-    0x8a, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98,
-    0x99, 0x9a, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7,
-    0xa8, 0xa9, 0xaa, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6,
-    0xb7, 0xb8, 0xb9, 0xba, 0xc2, 0xc3, 0xc4, 0xc5,
-    0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xd2, 0xd3, 0xd4,
-    0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xe1, 0xe2,
-    0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea,
-    0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8,
+    0x01, 0x02, 0x03, 0x00, 0x04, 0x11, 0x05, 0x12, 0x21, 0x31, 0x41, 0x06, 0x13, 0x51, 0x61, 0x07,
+    0x22, 0x71, 0x14, 0x32, 0x81, 0x91, 0xa1, 0x08, 0x23, 0x42, 0xb1, 0xc1, 0x15, 0x52, 0xd1, 0xf0,
+    0x24, 0x33, 0x62, 0x72, 0x82, 0x09, 0x0a, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x25, 0x26, 0x27, 0x28,
+    0x29, 0x2a, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49,
+    0x4a, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69,
+    0x6a, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89,
+    0x8a, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7,
+    0xa8, 0xa9, 0xaa, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xc2, 0xc3, 0xc4, 0xc5,
+    0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xe1, 0xe2,
+    0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8,
     0xf9, 0xfa,
 ];
 
 // Standard AC Chrominance Huffman bits and values
 const AC_CHROMA_BITS: [u8; 16] = [0, 2, 1, 2, 4, 4, 3, 4, 7, 5, 4, 4, 0, 1, 2, 119];
 const AC_CHROMA_VALS: [u8; 162] = [
-    0x00, 0x01, 0x02, 0x03, 0x11, 0x04, 0x05, 0x21,
-    0x31, 0x06, 0x12, 0x41, 0x51, 0x07, 0x61, 0x71,
-    0x13, 0x22, 0x32, 0x81, 0x08, 0x14, 0x42, 0x91,
-    0xa1, 0xb1, 0xc1, 0x09, 0x23, 0x33, 0x52, 0xf0,
-    0x15, 0x62, 0x72, 0xd1, 0x0a, 0x16, 0x24, 0x34,
-    0xe1, 0x25, 0xf1, 0x17, 0x18, 0x19, 0x1a, 0x26,
-    0x27, 0x28, 0x29, 0x2a, 0x35, 0x36, 0x37, 0x38,
-    0x39, 0x3a, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48,
-    0x49, 0x4a, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58,
-    0x59, 0x5a, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68,
-    0x69, 0x6a, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78,
-    0x79, 0x7a, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87,
-    0x88, 0x89, 0x8a, 0x92, 0x93, 0x94, 0x95, 0x96,
-    0x97, 0x98, 0x99, 0x9a, 0xa2, 0xa3, 0xa4, 0xa5,
-    0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xb2, 0xb3, 0xb4,
-    0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xc2, 0xc3,
-    0xc4, 0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xd2,
-    0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda,
-    0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9,
-    0xea, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8,
+    0x00, 0x01, 0x02, 0x03, 0x11, 0x04, 0x05, 0x21, 0x31, 0x06, 0x12, 0x41, 0x51, 0x07, 0x61, 0x71,
+    0x13, 0x22, 0x32, 0x81, 0x08, 0x14, 0x42, 0x91, 0xa1, 0xb1, 0xc1, 0x09, 0x23, 0x33, 0x52, 0xf0,
+    0x15, 0x62, 0x72, 0xd1, 0x0a, 0x16, 0x24, 0x34, 0xe1, 0x25, 0xf1, 0x17, 0x18, 0x19, 0x1a, 0x26,
+    0x27, 0x28, 0x29, 0x2a, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48,
+    0x49, 0x4a, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68,
+    0x69, 0x6a, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87,
+    0x88, 0x89, 0x8a, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0xa2, 0xa3, 0xa4, 0xa5,
+    0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xc2, 0xc3,
+    0xc4, 0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda,
+    0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8,
     0xf9, 0xfa,
 ];
 
@@ -220,47 +185,30 @@ fn category(val: i16) -> (u8, u16) {
     (cat, code)
 }
 
-fn help(temp: &mut [f32; 64], block: &[f32; 64]) {
-    for y in 0..8{
+fn dct_1d_pass(temp: &mut [f32; 64], block: &[f32; 64]) {
+    for y in 0..8 {
         for u in 0..8 {
             let mut sum = 0.0f32;
             for x in 0..8 {
-                let cos_val = ((2.0 * (x as f32) + 1.0) * (u as f32) * std::f32::consts::PI / 16.0).cos();
+                let cos_val =
+                    ((2.0 * (x as f32) + 1.0) * (u as f32) * std::f32::consts::PI / 16.0).cos();
                 sum += block[y * 8 + x] * cos_val;
             }
-            let alpha = if u == 0 { 1.0 / std::f32::consts::SQRT_2 } else { 1.0 };
+            let alpha = if u == 0 {
+                1.0 / std::f32::consts::SQRT_2
+            } else {
+                1.0
+            };
             temp[y * 8 + u] = 0.5 * alpha * sum;
         }
     }
 }
 
 fn forward_dct(block: &[f32; 64], out: &mut [f32; 64]) {
-    let c = std::f32::consts::PI / 16.0;
     // Separable 2D DCT via 1D DCT on rows then columns
     let mut temp = [0.0f32; 64];
-    for y in 0..8 {
-        for u in 0..8 {
-            let mut sum = 0.0f32;
-            for x in 0..8 {
-                let cos_val = ((2.0 * (x as f32) + 1.0) * (u as f32) * c).cos();
-                sum += block[y * 8 + x] * cos_val;
-            }
-            let alpha = if u == 0 { 1.0 / std::f32::consts::SQRT_2 } else { 1.0 };
-            temp[y * 8 + u] = 0.5 * alpha * sum;
-        }
-    }
-
-    for x in 0..8 {
-        for v in 0..8 {
-            let mut sum = 0.0f32;
-            for y in 0..8 {
-                let cos_val = ((2.0 * (y as f32) + 1.0) * (v as f32) * c).cos();
-                sum += temp[y * 8 + x] * cos_val;
-            }
-            let alpha = if v == 0 { 1.0 / std::f32::consts::SQRT_2 } else { 1.0 };
-            out[v * 8 + x] = 0.5 * alpha * sum;
-        }
-    }
+    dct_1d_pass(&mut temp, block);
+    dct_1d_pass(out, &temp);
 }
 
 fn quantize_and_zigzag(dct: &[f32; 64], q_table: &[u8; 64]) -> [i16; 64] {
@@ -365,11 +313,8 @@ impl FullJpegEncoder {
 
         // 2. APP0 JFIF (0xFFE0)
         out.extend_from_slice(&[
-            0xFF, 0xE0, 0x00, 0x10,
-            b'J', b'F', b'I', b'F', 0x00,
-            0x01, 0x01, 0x00,
-            0x00, 0x01, 0x00, 0x01,
-            0x00, 0x00,
+            0xFF, 0xE0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0x00, 0x01, 0x01, 0x00, 0x00, 0x01,
+            0x00, 0x01, 0x00, 0x00,
         ]);
 
         // 3. DQT Tables (0xFFDB)
@@ -457,49 +402,70 @@ impl FullJpegEncoder {
         let total_blocks = mcu_x * mcu_y;
         let mut encoded_mcus = vec![EncodedMcu::default(); total_blocks];
 
-        encoded_mcus.par_iter_mut().enumerate().for_each(|(index, encoded)| {
-            let my = index / mcu_x;
-            let mx = index % mcu_x;
+        encoded_mcus
+            .par_iter_mut()
+            .enumerate()
+            .for_each(|(index, encoded)| {
+                let my = index / mcu_x;
+                let mx = index % mcu_x;
 
-            let mut block_y = [0.0f32; 64];
-            let mut block_cb = [0.0f32; 64];
-            let mut block_cr = [0.0f32; 64];
-            let mut dct_out = [0.0f32; 64];
+                let mut block_y = [0.0f32; 64];
+                let mut block_cb = [0.0f32; 64];
+                let mut block_cr = [0.0f32; 64];
+                let mut dct_out = [0.0f32; 64];
 
-            for by in 0..8 {
-                let py = (my * 8 + by).min(h - 1);
-                for bx in 0..8 {
-                    let px = (mx * 8 + bx).min(w - 1);
-                    let idx = (py * w + px) * 3;
-                    let r = rgb[idx] as f32;
-                    let g = rgb[idx + 1] as f32;
-                    let b = rgb[idx + 2] as f32;
+                for by in 0..8 {
+                    let py = (my * 8 + by).min(h - 1);
+                    for bx in 0..8 {
+                        let px = (mx * 8 + bx).min(w - 1);
+                        let idx = (py * w + px) * 3;
+                        let r = rgb[idx] as f32;
+                        let g = rgb[idx + 1] as f32;
+                        let b = rgb[idx + 2] as f32;
 
-                    let y_val = 0.299 * r + 0.587 * g + 0.114 * b - 128.0;
-                    let cb_val = -0.168736 * r - 0.331264 * g + 0.5 * b;
-                    let cr_val = 0.5 * r - 0.418688 * g - 0.081312 * b;
+                        let y_val = 0.299 * r + 0.587 * g + 0.114 * b - 128.0;
+                        let cb_val = -0.168736 * r - 0.331264 * g + 0.5 * b;
+                        let cr_val = 0.5 * r - 0.418688 * g - 0.081312 * b;
 
-                    let b_idx = by * 8 + bx;
-                    block_y[b_idx] = y_val;
-                    block_cb[b_idx] = cb_val;
-                    block_cr[b_idx] = cr_val;
+                        let b_idx = by * 8 + bx;
+                        block_y[b_idx] = y_val;
+                        block_cb[b_idx] = cb_val;
+                        block_cr[b_idx] = cr_val;
+                    }
                 }
-            }
 
-            forward_dct(&block_y, &mut dct_out);
-            encoded.y = quantize_and_zigzag(&dct_out, &q_luma);
+                forward_dct(&block_y, &mut dct_out);
+                encoded.y = quantize_and_zigzag(&dct_out, &q_luma);
 
-            forward_dct(&block_cb, &mut dct_out);
-            encoded.cb = quantize_and_zigzag(&dct_out, &q_chroma);
+                forward_dct(&block_cb, &mut dct_out);
+                encoded.cb = quantize_and_zigzag(&dct_out, &q_chroma);
 
-            forward_dct(&block_cr, &mut dct_out);
-            encoded.cr = quantize_and_zigzag(&dct_out, &q_chroma);
-        });
+                forward_dct(&block_cr, &mut dct_out);
+                encoded.cr = quantize_and_zigzag(&dct_out, &q_chroma);
+            });
 
         for block in encoded_mcus {
-            encode_block(&block.y, &mut prev_dc_y, &dc_luma_table, &ac_luma_table, &mut bit_writer);
-            encode_block(&block.cb, &mut prev_dc_cb, &dc_chroma_table, &ac_chroma_table, &mut bit_writer);
-            encode_block(&block.cr, &mut prev_dc_cr, &dc_chroma_table, &ac_chroma_table, &mut bit_writer);
+            encode_block(
+                &block.y,
+                &mut prev_dc_y,
+                &dc_luma_table,
+                &ac_luma_table,
+                &mut bit_writer,
+            );
+            encode_block(
+                &block.cb,
+                &mut prev_dc_cb,
+                &dc_chroma_table,
+                &ac_chroma_table,
+                &mut bit_writer,
+            );
+            encode_block(
+                &block.cr,
+                &mut prev_dc_cr,
+                &dc_chroma_table,
+                &ac_chroma_table,
+                &mut bit_writer,
+            );
         }
 
         bit_writer.flush();
