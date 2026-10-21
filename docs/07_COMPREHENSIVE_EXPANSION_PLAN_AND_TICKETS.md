@@ -1,3 +1,11 @@
+---
+id: comprehensive-expansion-plan-and-tickets
+title: "Engineering Plan & Granular Sprint Tickets"
+description: "Detailed sprint tickets, task breakdown, and acceptance criteria for the oxipix multi-crate sovereign replacement."
+sidebar_label: "Sprint Tickets & Plan"
+sidebar_position: 7
+---
+
 # Engineering Plan & Granular Sprint Tickets: Comprehensive Multi-Crate Sovereign Replacement
 
 ## 1. Executive Summary & Architectural Strategy

@@ -1,3 +1,11 @@
+---
+id: architecture-and-design-patterns
+title: "Architecture & Design Patterns Specification"
+description: "Design patterns, memory layout, and sovereign multi-crate partitioning across the oxipix workspace."
+sidebar_label: "Architecture & Patterns"
+sidebar_position: 1
+---
+
 # Architecture & Design Patterns Specification: `oxipix` Workspace
 
 ## 1. Persona & Structural Architecture

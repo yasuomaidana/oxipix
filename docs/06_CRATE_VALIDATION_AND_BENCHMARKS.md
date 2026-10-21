@@ -1,3 +1,11 @@
+---
+id: crate-validation-and-benchmarks
+title: "Crate Parity Validation & Benchmark Report"
+description: "Empirical validation and parity assessment of oxipix against image, imageproc, fast_image_resize, and rxing."
+sidebar_label: "Validation & Benchmarks"
+sidebar_position: 6
+---
+
 # Crate Parity Validation, Test Execution & Empirical Benchmark Report
 
 ## 1. Executive Summary & Verdict

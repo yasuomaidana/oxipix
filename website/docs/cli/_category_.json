@@ -1,0 +1,9 @@
+{
+  "label": "CLI \u0026 Tooling Reference",
+  "position": 5,
+  "link": {
+    "type": "generated-index"
+  },
+  "collapsible": true,
+  "collapsed": false
+}

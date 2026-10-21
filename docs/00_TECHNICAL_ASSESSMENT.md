@@ -1,3 +1,11 @@
+---
+id: technical-assessment
+title: "Technical Assessment: Sovereign Pixmap & Codec Workspace"
+description: "Initial technical assessment, patent analysis, and architectural motivation for the oxipix sovereign workspace."
+sidebar_label: "Technical Assessment"
+sidebar_position: 0
+---
+
 # Technical Assessment: Sovereign Accelerated Pixmap & Codec Workspace (`oxipix`)
 
 ## 1. Executive Summary & Problem Formulation

@@ -1,3 +1,11 @@
+---
+id: image-test-parity-matrix
+title: "Comprehensive image Test Parity Matrix (569 Tests)"
+description: "Catalog of all 569 upstream image tests compiled and verified against oxipix-compat-image."
+sidebar_label: "image Test Parity"
+sidebar_position: 5
+---
+
 # Comprehensive `image` Test Parity Matrix: 569 Upstream Tests
 
 ## 1. Executive Summary & Verification Requirement

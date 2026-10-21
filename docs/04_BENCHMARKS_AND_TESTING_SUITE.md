@@ -1,3 +1,11 @@
+---
+id: benchmarks-and-testing-suite
+title: "Benchmarks, Quality Assurance & Test Suite"
+description: "Empirical benchmarking, Criterion regression suite, and quality assurance framework for oxipix."
+sidebar_label: "QA & Benchmarks"
+sidebar_position: 4
+---
+
 # Benchmarks, Quality Assurance & Test Suite: `oxipix`
 
 ## 1. Quality Assurance Architecture & DoD Verification
