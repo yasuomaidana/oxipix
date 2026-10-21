@@ -185,7 +185,7 @@ fn category(val: i16) -> (u8, u16) {
     (cat, code)
 }
 
-fn dct_1d_pass(temp: &mut [f32; 64], block: &[f32; 64]) {
+fn dct_1d_row(temp: &mut [f32; 64], block: &[f32; 64]) {
     for y in 0..8 {
         for u in 0..8 {
             let mut sum = 0.0f32;
@@ -204,20 +204,40 @@ fn dct_1d_pass(temp: &mut [f32; 64], block: &[f32; 64]) {
     }
 }
 
+fn dct_1d_col(out: &mut [f32; 64], temp: &[f32; 64]) {
+    for u in 0..8 {
+        for v in 0..8 {
+            let mut sum = 0.0f32;
+            for y in 0..8 {
+                let cos_val =
+                    ((2.0 * (y as f32) + 1.0) * (v as f32) * std::f32::consts::PI / 16.0).cos();
+                sum += temp[y * 8 + u] * cos_val;
+            }
+            let alpha = if v == 0 {
+                1.0 / std::f32::consts::SQRT_2
+            } else {
+                1.0
+            };
+            out[v * 8 + u] = 0.5 * alpha * sum;
+        }
+    }
+}
+
 fn forward_dct(block: &[f32; 64], out: &mut [f32; 64]) {
-    // Separable 2D DCT via 1D DCT on rows then columns
+    // Separable 2D DCT: 1D DCT on rows, followed by 1D DCT on columns
     let mut temp = [0.0f32; 64];
-    dct_1d_pass(&mut temp, block);
-    dct_1d_pass(out, &temp);
+    dct_1d_row(&mut temp, block);
+    dct_1d_col(out, &temp);
 }
 
 fn quantize_and_zigzag(dct: &[f32; 64], q_table: &[u8; 64]) -> [i16; 64] {
     let mut zz = [0i16; 64];
-    for i in 0..64 {
-        let q = q_table[i] as f32;
-        let val = (dct[i] / q).round();
+    for k in 0..64 {
+        let idx = ZIGZAG[k];
+        let q = q_table[idx] as f32;
+        let val = (dct[idx] / q).round();
         let clamped = val.clamp(i16::MIN as f32, i16::MAX as f32) as i16;
-        zz[ZIGZAG[i]] = clamped;
+        zz[k] = clamped;
     }
     zz
 }

@@ -780,8 +780,15 @@ pub fn load_from_memory_with_format(
     format: ImageFormat,
 ) -> Result<DynamicImage, ImageError> {
     match format {
-        ImageFormat::Pnm | ImageFormat::Bmp => {
+        ImageFormat::Pnm => {
             let (w, h, rgb) = oxipix_codecs::PpmDecoder::decode(bytes)
+                .map_err(|e| ImageError::Decoding(e.to_string()))?;
+            let img = ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(w.get(), h.get(), rgb)
+                .ok_or_else(|| ImageError::Decoding("Invalid image buffer dimensions".into()))?;
+            Ok(DynamicImage::ImageRgb8(img))
+        }
+        ImageFormat::Bmp => {
+            let (w, h, rgb) = oxipix_codecs::BmpDecoder::decode(bytes)
                 .map_err(|e| ImageError::Decoding(e.to_string()))?;
             let img = ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(w.get(), h.get(), rgb)
                 .ok_or_else(|| ImageError::Decoding("Invalid image buffer dimensions".into()))?;
