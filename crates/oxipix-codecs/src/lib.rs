@@ -154,6 +154,8 @@ impl JpegWriter {
     }
 }
 
+pub mod jpeg;
+
 /// Baseline Clean-Room JPEG Encoder.
 pub struct JpegEncoder {
     quality: JpegQuality,
@@ -180,6 +182,21 @@ impl JpegEncoder {
         width: PixelWidth,
         height: PixelHeight,
     ) -> Result<Vec<u8>, OxipixError> {
+        let full_encoder = jpeg::FullJpegEncoder::new(self.quality);
+        full_encoder.encode_rgb24(rgb, width, height)
+    }
+}
+
+/// Portable Pixmap (PPM P6) binary image encoder.
+pub struct PpmEncoder;
+
+impl PpmEncoder {
+    /// Encodes raw 24-bit RGB pixel buffer into PPM P6 binary format.
+    pub fn encode_rgb24(
+        rgb: &[u8],
+        width: PixelWidth,
+        height: PixelHeight,
+    ) -> Result<Vec<u8>, OxipixError> {
         let expected = (width.get() as usize)
             .checked_mul(height.get() as usize)
             .and_then(|px| px.checked_mul(3))
@@ -188,18 +205,236 @@ impl JpegEncoder {
                 height: height.get(),
                 bytes_per_pixel: 3,
             })?;
-
         if rgb.len() < expected {
             return Err(OxipixError::BufferUnderflow);
         }
+        let header = format!("P6\n{} {}\n255\n", width.get(), height.get());
+        let mut out = Vec::with_capacity(header.len() + expected);
+        out.extend_from_slice(header.as_bytes());
+        out.extend_from_slice(&rgb[..expected]);
+        Ok(out)
+    }
 
-        let mut out = Vec::with_capacity(rgb.len() / 4 + 1024);
-        JpegWriter::write_jfif_header(&mut out)?;
-        JpegWriter::write_sof0(&mut out, width, height, 3)?;
-        // Write standard EOI
-        JpegWriter::write_eoi(&mut out)?;
+    /// Encodes raw 32-bit RGBA pixel buffer into PPM P6 binary format (discarding alpha).
+    pub fn encode_rgba8(
+        rgba: &[u8],
+        width: PixelWidth,
+        height: PixelHeight,
+    ) -> Result<Vec<u8>, OxipixError> {
+        let expected = (width.get() as usize)
+            .checked_mul(height.get() as usize)
+            .and_then(|px| px.checked_mul(4))
+            .ok_or(OxipixError::AllocationOverflow {
+                width: width.get(),
+                height: height.get(),
+                bytes_per_pixel: 4,
+            })?;
+        if rgba.len() < expected {
+            return Err(OxipixError::BufferUnderflow);
+        }
+        let px_count = (width.get() as usize) * (height.get() as usize);
+        let mut rgb = vec![0u8; px_count * 3];
+        for i in 0..px_count {
+            rgb[i * 3] = rgba[i * 4];
+            rgb[i * 3 + 1] = rgba[i * 4 + 1];
+            rgb[i * 3 + 2] = rgba[i * 4 + 2];
+        }
+        Self::encode_rgb24(&rgb, width, height)
+    }
+}
+
+/// Portable Pixmap (PPM P6) binary image decoder.
+pub struct PpmDecoder;
+
+impl PpmDecoder {
+    /// Decodes a PPM P6 binary image stream into raw RGB bytes, width, and height.
+    pub fn decode(bytes: &[u8]) -> Result<(PixelWidth, PixelHeight, Vec<u8>), OxipixError> {
+        if bytes.len() < 3 || &bytes[0..2] != b"P6" {
+            return Err(OxipixError::DecodingError {
+                reason: "Invalid PPM magic signature (expected P6)".into(),
+            });
+        }
+        let mut idx = 2;
+        let mut tokens = Vec::new();
+        while idx < bytes.len() && tokens.len() < 3 {
+            while idx < bytes.len() && (bytes[idx] == b' ' || bytes[idx] == b'\t' || bytes[idx] == b'\r' || bytes[idx] == b'\n') {
+                idx += 1;
+            }
+            if idx < bytes.len() && bytes[idx] == b'#' {
+                while idx < bytes.len() && bytes[idx] != b'\n' {
+                    idx += 1;
+                }
+                continue;
+            }
+            let start = idx;
+            while idx < bytes.len() && !(bytes[idx] == b' ' || bytes[idx] == b'\t' || bytes[idx] == b'\r' || bytes[idx] == b'\n') {
+                idx += 1;
+            }
+            if start < idx {
+                let token_str = std::str::from_utf8(&bytes[start..idx]).map_err(|_| OxipixError::DecodingError {
+                    reason: "Malformed UTF-8 in PPM header".into(),
+                })?;
+                tokens.push(token_str);
+            }
+        }
+        if tokens.len() < 3 {
+            return Err(OxipixError::DecodingError {
+                reason: "Incomplete PPM header (missing width, height, or maxval)".into(),
+            });
+        }
+        let w: u32 = tokens[0].parse().map_err(|_| OxipixError::DecodingError {
+            reason: format!("Invalid PPM width: {}", tokens[0]),
+        })?;
+        let h: u32 = tokens[1].parse().map_err(|_| OxipixError::DecodingError {
+            reason: format!("Invalid PPM height: {}", tokens[1]),
+        })?;
+        if idx < bytes.len() && (bytes[idx] == b' ' || bytes[idx] == b'\n' || bytes[idx] == b'\r') {
+            idx += 1;
+        }
+        let expected = (w as usize)
+            .checked_mul(h as usize)
+            .and_then(|px| px.checked_mul(3))
+            .ok_or(OxipixError::AllocationOverflow {
+                width: w,
+                height: h,
+                bytes_per_pixel: 3,
+            })?;
+        let payload = &bytes[idx..];
+        if payload.len() < expected {
+            return Err(OxipixError::BufferUnderflow);
+        }
+        Ok((PixelWidth(w), PixelHeight(h), payload[..expected].to_vec()))
+    }
+}
+
+/// Windows Bitmap (BMP 24-bit uncompressed) image encoder.
+pub struct BmpEncoder;
+
+impl BmpEncoder {
+    /// Encodes raw 24-bit RGB pixel buffer into standard 24-bit Windows BMP format.
+    pub fn encode_rgb24(
+        rgb: &[u8],
+        width: PixelWidth,
+        height: PixelHeight,
+    ) -> Result<Vec<u8>, OxipixError> {
+        let w = width.get();
+        let h = height.get();
+        let row_stride = (w * 3).div_ceil(4) * 4;
+        let image_size = (row_stride as usize)
+            .checked_mul(h as usize)
+            .ok_or(OxipixError::AllocationOverflow {
+                width: w,
+                height: h,
+                bytes_per_pixel: 3,
+            })?;
+        let file_size = 54 + image_size;
+        let mut out = Vec::with_capacity(file_size);
+
+        // BITMAPFILEHEADER (14 bytes)
+        out.extend_from_slice(b"BM");
+        out.extend_from_slice(&(file_size as u32).to_le_bytes());
+        out.extend_from_slice(&[0, 0, 0, 0]); // Reserved
+        out.extend_from_slice(&54u32.to_le_bytes()); // Data offset
+
+        // BITMAPINFOHEADER (40 bytes)
+        out.extend_from_slice(&40u32.to_le_bytes()); // Header size
+        out.extend_from_slice(&(w as i32).to_le_bytes());
+        out.extend_from_slice(&(h as i32).to_le_bytes()); // Bottom-up
+        out.extend_from_slice(&1u16.to_le_bytes()); // Color planes = 1
+        out.extend_from_slice(&24u16.to_le_bytes()); // Bits per pixel = 24
+        out.extend_from_slice(&0u32.to_le_bytes()); // Compression = BI_RGB (0)
+        out.extend_from_slice(&(image_size as u32).to_le_bytes());
+        out.extend_from_slice(&2835u32.to_le_bytes()); // Horizontal resolution (72 DPI)
+        out.extend_from_slice(&2835u32.to_le_bytes()); // Vertical resolution (72 DPI)
+        out.extend_from_slice(&0u32.to_le_bytes()); // Colors used
+        out.extend_from_slice(&0u32.to_le_bytes()); // Important colors
+
+        // Pixel data: bottom-to-top, BGR order
+        let padding = (row_stride as usize) - (w as usize * 3);
+        let pad_bytes = [0u8; 4];
+        for y in (0..h).rev() {
+            let row_start = (y as usize) * (w as usize * 3);
+            for x in 0..(w as usize) {
+                let px = row_start + (x * 3);
+                let r = rgb[px];
+                let g = rgb[px + 1];
+                let b = rgb[px + 2];
+                out.push(b);
+                out.push(g);
+                out.push(r);
+            }
+            if padding > 0 {
+                out.extend_from_slice(&pad_bytes[..padding]);
+            }
+        }
 
         Ok(out)
+    }
+
+    /// Encodes raw 32-bit RGBA pixel buffer into standard 24-bit Windows BMP format (discarding alpha).
+    pub fn encode_rgba8(
+        rgba: &[u8],
+        width: PixelWidth,
+        height: PixelHeight,
+    ) -> Result<Vec<u8>, OxipixError> {
+        let w = width.get() as usize;
+        let h = height.get() as usize;
+        let mut rgb = vec![0u8; w * h * 3];
+        for i in 0..(w * h) {
+            rgb[i * 3] = rgba[i * 4];
+            rgb[i * 3 + 1] = rgba[i * 4 + 1];
+            rgb[i * 3 + 2] = rgba[i * 4 + 2];
+        }
+        Self::encode_rgb24(&rgb, width, height)
+    }
+}
+
+/// Windows Bitmap (BMP 24/32-bit uncompressed) image decoder.
+pub struct BmpDecoder;
+
+impl BmpDecoder {
+    /// Decodes a BMP image stream into raw RGB bytes, width, and height.
+    pub fn decode(bytes: &[u8]) -> Result<(PixelWidth, PixelHeight, Vec<u8>), OxipixError> {
+        if bytes.len() < 54 || &bytes[0..2] != b"BM" {
+            return Err(OxipixError::DecodingError {
+                reason: "Invalid BMP magic signature (expected BM)".into(),
+            });
+        }
+        let offset = u32::from_le_bytes([bytes[10], bytes[11], bytes[12], bytes[13]]) as usize;
+        let w = i32::from_le_bytes([bytes[18], bytes[19], bytes[20], bytes[21]]).unsigned_abs();
+        let raw_h = i32::from_le_bytes([bytes[22], bytes[23], bytes[24], bytes[25]]);
+        let h = raw_h.unsigned_abs();
+        let bpp = u16::from_le_bytes([bytes[28], bytes[29]]);
+        if bpp != 24 && bpp != 32 {
+            return Err(OxipixError::UnsupportedFormat {
+                format: format!("BMP with {} bpp is not supported (only 24/32-bit)", bpp),
+            });
+        }
+        let bytes_per_pixel = (bpp / 8) as usize;
+        let row_stride = (w * bytes_per_pixel as u32).div_ceil(4) * 4;
+        let mut rgb = vec![0u8; (w as usize) * (h as usize) * 3];
+
+        let bottom_up = raw_h > 0;
+        for target_y in 0..h {
+            let src_y = if bottom_up { h - 1 - target_y } else { target_y };
+            let row_offset = offset + (src_y as usize * row_stride as usize);
+            if row_offset + (w as usize * bytes_per_pixel) > bytes.len() {
+                return Err(OxipixError::BufferUnderflow);
+            }
+            let src_row = &bytes[row_offset..row_offset + (w as usize * bytes_per_pixel)];
+            let dst_row_start = target_y as usize * (w as usize * 3);
+            for x in 0..w as usize {
+                let sp = x * bytes_per_pixel;
+                let b = src_row[sp];
+                let g = src_row[sp + 1];
+                let r = src_row[sp + 2];
+                let dp = dst_row_start + (x * 3);
+                rgb[dp] = r;
+                rgb[dp + 1] = g;
+                rgb[dp + 2] = b;
+            }
+        }
+        Ok((PixelWidth(w), PixelHeight(h), rgb))
     }
 }
 
@@ -243,4 +478,58 @@ mod tests {
         assert_eq!(&buf[2..4], &[0xFF, 0xE0]);
         assert_eq!(&buf[6..10], b"JFIF");
     }
+
+    #[test]
+    fn test_ppm_roundtrip() {
+        let rgb = [255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0];
+        let encoded = PpmEncoder::encode_rgb24(&rgb, PixelWidth(2), PixelHeight(2)).unwrap();
+        let (w, h, decoded) = PpmDecoder::decode(&encoded).unwrap();
+        assert_eq!(w.get(), 2);
+        assert_eq!(h.get(), 2);
+        assert_eq!(decoded, rgb);
+    }
+
+    #[test]
+    fn test_bmp_roundtrip() {
+        let rgb = [255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0];
+        let encoded = BmpEncoder::encode_rgb24(&rgb, PixelWidth(2), PixelHeight(2)).unwrap();
+        let (w, h, decoded) = BmpDecoder::decode(&encoded).unwrap();
+        assert_eq!(w.get(), 2);
+        assert_eq!(h.get(), 2);
+        assert_eq!(decoded, rgb);
+    }
+
+    #[test]
+    fn test_jpeg_encoder_output() {
+        let encoder = JpegEncoder::new(JpegQuality::new(85).unwrap());
+        // 8x8 test pattern (64 pixels = 192 bytes RGB)
+        let mut rgb = vec![0u8; 8 * 8 * 3];
+        for i in 0..64 {
+            rgb[i * 3] = (i * 3) as u8;
+            rgb[i * 3 + 1] = 128;
+            rgb[i * 3 + 2] = 255 - (i * 3) as u8;
+        }
+        let encoded = encoder
+            .encode_rgb24(&rgb, PixelWidth(8), PixelHeight(8))
+            .expect("jpeg encoding failed");
+
+        // Validate SOI and EOI markers
+        assert!(encoded.len() > 100, "JPEG output unexpectedly small: {} bytes", encoded.len());
+        assert_eq!(&encoded[0..2], &[0xFF, 0xD8], "Missing SOI marker");
+        assert_eq!(&encoded[encoded.len() - 2..], &[0xFF, 0xD9], "Missing EOI marker");
+
+        // Validate required markers exist in the stream
+        let has_app0 = encoded.windows(2).any(|w| w == [0xFF, 0xE0]);
+        let has_dqt = encoded.windows(2).any(|w| w == [0xFF, 0xDB]);
+        let has_sof0 = encoded.windows(2).any(|w| w == [0xFF, 0xC0]);
+        let has_dht = encoded.windows(2).any(|w| w == [0xFF, 0xC4]);
+        let has_sos = encoded.windows(2).any(|w| w == [0xFF, 0xDA]);
+
+        assert!(has_app0, "JPEG missing APP0 JFIF marker");
+        assert!(has_dqt, "JPEG missing DQT quantization table marker");
+        assert!(has_sof0, "JPEG missing SOF0 baseline frame marker");
+        assert!(has_dht, "JPEG missing DHT Huffman table marker");
+        assert!(has_sos, "JPEG missing SOS start of scan marker");
+    }
 }
+

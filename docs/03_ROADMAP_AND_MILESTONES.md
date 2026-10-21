@@ -1,3 +1,11 @@
+---
+id: roadmap-and-milestones
+title: "Granular Roadmap & Agile Milestones"
+description: "Definition of Done (DoD), sprint structure, and agile milestones for the oxipix workspace."
+sidebar_label: "Roadmap & Milestones"
+sidebar_position: 3
+---
+
 # Granular Roadmap & Agile Milestones: `oxipix` Workspace
 
 ## 1. Scrum Master Alignment & Definition of Done (DoD)

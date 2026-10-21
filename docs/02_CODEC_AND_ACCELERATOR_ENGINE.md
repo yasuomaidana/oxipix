@@ -1,3 +1,11 @@
+---
+id: codec-and-accelerator-engine
+title: "Codec & Hardware Accelerator Engine"
+description: "Detailed specification of the multi-tier SIMD, clean-room JPEG, and GPU hardware accelerator engine in oxipix."
+sidebar_label: "Accelerator Engine"
+sidebar_position: 2
+---
+
 # Codec & Hardware Accelerator Engine: `oxipix`
 
 ## 1. Accelerator Architecture & Dispatch Matrix
