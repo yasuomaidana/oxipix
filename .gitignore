@@ -1,2 +1,4 @@
 /target
 /graphify-out
+# Dendrite local RAG cache
+/.dendrite/rag_cache.json
