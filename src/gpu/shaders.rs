@@ -1,5 +1,4 @@
-//! Headless WGSL compute shaders for 2D spatial filtering, convolution, and perspective rectification.
-#![deny(missing_docs)]
+//! WGSL compute shaders for 3x3 convolution and perspective rectification.
 
 /// WGSL compute shader for arbitrary 3x3 2D spatial convolution (Gaussian, Sobel, Laplacian, Sharpen).
 pub const CONVOLUTION_2D_WGSL: &str = r#"
@@ -81,14 +80,14 @@ struct TransformUniforms {
 @group(0) @binding(2) var<storage, read_write> output_rgba: array<u32>;
 
 fn sample_bilinear(u: f32, v: f32) -> u32 {
-    if (u < 0.0 || u >= f32(uniforms.src_width - 1u) || v < 0.0 || v >= f32(uniforms.src_height - 1u)) {
+    if (u < 0.0 || u > f32(uniforms.src_width - 1u) || v < 0.0 || v > f32(uniforms.src_height - 1u)) {
         return 0xFFFFFFFFu; // White background for quiet zone
     }
 
-    let x0 = u32(floor(u));
-    let y0 = u32(floor(v));
-    let x1 = x0 + 1u;
-    let y1 = y0 + 1u;
+    let x0 = min(u32(floor(u)), uniforms.src_width - 1u);
+    let y0 = min(u32(floor(v)), uniforms.src_height - 1u);
+    let x1 = min(x0 + 1u, uniforms.src_width - 1u);
+    let y1 = min(y0 + 1u, uniforms.src_height - 1u);
 
     let fx = u - f32(x0);
     let fy = v - f32(y0);

@@ -1,46 +1,33 @@
-[workspace]
-members = [
-    "crates/oxipix-core",
-    "crates/oxipix-simd",
-    "crates/oxipix-codecs",
-    "crates/oxipix-ops",
-    "crates/oxipix-gpu",
-    "crates/oxipix-compat-image",
-    "crates/oxipix-barcode",
-]
-resolver = "2"
-
 [package]
 name = "oxipix"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
-description = "Sovereign zero-copy accelerated pixmaps, multi-tier SIMD/GPU, and patent-clean image codecs"
+description = "Document-capture toolkit on top of `image`: optional wgpu acceleration, perspective unwarping, mosaic stitching and raster-to-vector tracing"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-oxipix-core = { path = "crates/oxipix-core" }
-oxipix-simd = { path = "crates/oxipix-simd" }
-oxipix-codecs = { path = "crates/oxipix-codecs" }
-oxipix-ops = { path = "crates/oxipix-ops" }
-oxipix-gpu = { path = "crates/oxipix-gpu" }
-oxipix-compat-image = { path = "crates/oxipix-compat-image" }
-oxipix-barcode = { path = "crates/oxipix-barcode" }
+image = { version = "0.25", default-features = false }
+thiserror = "2.0.21"
+oximedia-cv = { version = "0.2.1", optional = true }
+bytemuck = { version = "1.25.2", optional = true }
+wgpu = { version = "30.0.1", optional = true }
+pollster = { version = "1.0.1", optional = true }
 
 [features]
-default = ["simd", "codecs", "ops", "compat-image", "barcode", "gpu"]
-simd = []
-codecs = []
-ops = []
-gpu = ["oxipix-gpu/wgpu"]
-compat-image = []
-barcode = []
+default = ["mosaic", "vectorize"]
+# wgpu compute acceleration (opt-in; every operation has a CPU fallback)
+gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+# 2D registration, strip overlap detection, perspective unwarp and stitching
+mosaic = ["dep:oximedia-cv"]
+# Otsu + Moore-neighbour contour tracing + RDP simplification + SVG synthesis
+vectorize = []
 
 [dev-dependencies]
 criterion = "0.8.2"
-serde_json = "1.0"
-testcontainers = "0.28.0"
-tokio = { version = "1.43", features = ["full"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+imageproc = { version = "0.25", default-features = false }
 
 [[bench]]
-name = "crate_comparison"
+name = "gpu_vs_cpu"
 harness = false
+required-features = ["gpu"]
