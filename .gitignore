@@ -4,3 +4,4 @@
 /.dendrite/rag_cache.json
 .idea/
 skills/system/
+.dendrite/
