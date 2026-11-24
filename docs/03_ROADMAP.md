@@ -8,7 +8,7 @@ Direction (2026-10, see [ADR-0001](adr/0001-single-crate-on-top-of-image.md)): o
 `image` or `rxing`: wgpu acceleration and generic document-capture computer vision. CPU improvements to those crates
 go upstream; see [`FORKS.md`](FORKS.md).
 
-IDs below are local (`RM-`). Map each to a Plane ticket (`OXI-nn`) with `dendrite` when it is scheduled.
+IDs below are local (`RM-`); the Plane ticket for each is in the table.
 
 ## 1. What changed since the 16 spec
 
@@ -30,12 +30,12 @@ quality gates, 100% coverage, documentation and packaging described in [`02_QUAL
 
 | ID | Priority | Requirement | Notes |
 |---|---|---|---|
-| RM-ECC | high | Make `estimate_orthogonal_drift_ecc` return the drift of a shifted strip | Observed to return 0 for shifts of 1 to 3 px; see [architecture §5](01_ARCHITECTURE.md). Either fix the use of `register_ecc` (initial warp, iteration count, tolerance) or replace it with phase correlation. Needs a regression test with a known shift. |
-| RM-QUAD | high | Detect the largest document quadrilateral in a photograph | Canny, contours, polygon approximation, quad scoring; replaces the bounding-box crop in `auto_dewarp_dominant_quad`. Acceptance: corners within 2% of the image diagonal on a fixture set of receipts on tables. |
-| RM-ENHANCE | medium | Thermal-receipt enhancement chain | CLAHE, background division for shadows, denoise, unsharp mask, and a `receipt_enhance()` preset that feeds a local threshold. Check what `imageproc` already provides before writing anything. Acceptance: measurable OCR improvement on faded fixtures. |
-| RM-WARP | medium | One border policy for the CPU and GPU warps | The GPU warp fills with white and the CPU warp edge-clamps; make it a parameter. |
-| RM-DOCS | high | OpenCV-style documentation site | Plan: [`plans/OPENCV_STYLE_DOCS_PLAN.md`](plans/OPENCV_STYLE_DOCS_PLAN.md). |
-| RM-BENCH | high | Performance comparison against the `opencv` crate | Part of the same plan; kept out of the published crate's dependency graph. |
+| RM-ECC (OXI-81) | high | Make `estimate_orthogonal_drift_ecc` return the drift of a shifted strip | Observed to return 0 for shifts of 1 to 3 px; see [architecture §5](01_ARCHITECTURE.md). Either fix the use of `register_ecc` (initial warp, iteration count, tolerance) or replace it with phase correlation. Needs a regression test with a known shift. |
+| RM-QUAD (OXI-82) | high | Detect the largest document quadrilateral in a photograph | Canny, contours, polygon approximation, quad scoring; replaces the bounding-box crop in `auto_dewarp_dominant_quad`. Acceptance: corners within 2% of the image diagonal on a fixture set of receipts on tables. |
+| RM-ENHANCE (OXI-85) | medium | Thermal-receipt enhancement chain | CLAHE, background division for shadows, denoise, unsharp mask, and a `receipt_enhance()` preset that feeds a local threshold. Check what `imageproc` already provides before writing anything. Acceptance: measurable OCR improvement on faded fixtures. |
+| RM-WARP (OXI-86) | medium | One border policy for the CPU and GPU warps | The GPU warp fills with white and the CPU warp edge-clamps; make it a parameter. |
+| RM-DOCS (OXI-83) | high | OpenCV-style documentation site | Plan: [`plans/OPENCV_STYLE_DOCS_PLAN.md`](plans/OPENCV_STYLE_DOCS_PLAN.md). |
+| RM-BENCH (OXI-84) | high | Performance comparison against the `opencv` crate | Part of the same plan; kept out of the published crate's dependency graph. |
 | RM-SPLIT | low | Split into `oxipix-gpu`, `oxipix-mosaic` and `oxipix-vectorize` | Only if justified, as a separate pull request. |
 | RM-OTSU | low | Replace `vectorize::otsu_threshold` with `imageproc::contrast::otsu_level` | Only after parity is verified; the two use different conventions (`<=` versus `<`). |
 
