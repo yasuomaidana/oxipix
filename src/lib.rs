@@ -11,6 +11,9 @@
 //!   simplification and SVG path synthesis.
 #![warn(missing_docs)]
 
+#[cfg(any(feature = "mosaic", feature = "vectorize"))]
+mod luma;
+
 #[cfg(feature = "gpu")]
 pub mod gpu;
 

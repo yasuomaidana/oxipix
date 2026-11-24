@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 image = { version = "0.25", default-features = false }
-thiserror = "2.0.21"
+thiserror = { version = "2.0.21", optional = true }
 oximedia-cv = { version = "0.2.1", optional = true }
 bytemuck = { version = "1.25.2", optional = true }
 wgpu = { version = "30.0.1", optional = true }
@@ -16,9 +16,9 @@ pollster = { version = "1.0.1", optional = true }
 [features]
 default = ["mosaic", "vectorize"]
 # wgpu compute acceleration (opt-in; every operation has a CPU fallback)
-gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck", "dep:thiserror"]
 # 2D registration, strip overlap detection, perspective unwarp and stitching
-mosaic = ["dep:oximedia-cv"]
+mosaic = ["dep:oximedia-cv", "dep:thiserror"]
 # Otsu + Moore-neighbour contour tracing + RDP simplification + SVG synthesis
 vectorize = []
 

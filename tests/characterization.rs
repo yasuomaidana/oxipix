@@ -51,15 +51,37 @@ fn smooth_pair(axis: OverlapAxis) -> (RgbaImage, RgbaImage) {
     }
 }
 
-fn dark_box_on_white(w: u32, h: u32, inset: u32) -> RgbaImage {
+#[derive(Clone, Copy, PartialEq)]
+enum Shape {
+    Filled,
+    Outline,
+}
+
+/// A rectangle inset by `inset` pixels, drawn in `fg` on a `bg` background (grey levels).
+fn framed_box(w: u32, h: u32, inset: u32, shape: Shape, (fg, bg): (u8, u8)) -> RgbaImage {
     RgbaImage::from_fn(w, h, |x, y| {
         let inside = (inset..w - inset).contains(&x) && (inset..h - inset).contains(&y);
-        if inside {
-            Rgba([20, 20, 20, 255])
+        let on_edge = x == inset || x == w - inset - 1 || y == inset || y == h - inset - 1;
+        let level = if inside && (shape == Shape::Filled || on_edge) {
+            fg
         } else {
-            Rgba([250, 250, 250, 255])
-        }
+            bg
+        };
+        Rgba([level, level, level, 255])
     })
+}
+
+fn bright_page_on_black(w: u32, h: u32, inset: u32) -> RgbaImage {
+    framed_box(w, h, inset, Shape::Filled, (220, 0))
+}
+
+/// A one-pixel bright outline on black: the only shape `ContourFinder` reports as one large loop.
+fn outlined_page(w: u32, h: u32, inset: u32) -> RgbaImage {
+    framed_box(w, h, inset, Shape::Outline, (220, 0))
+}
+
+fn dark_box_on_white(w: u32, h: u32, inset: u32) -> RgbaImage {
+    framed_box(w, h, inset, Shape::Filled, (20, 250))
 }
 
 fn svg(img: &RgbaImage, grid_step: f32, rdp_epsilon: f32) -> VectorizedGraphic {
@@ -128,6 +150,10 @@ fn stitching() -> Vec<Golden> {
             "stitch_feathered_empty_error",
             err(stitch_frames_feathered(&[], 3)),
         ),
+        (
+            "stitch_feathered_offset_overflow_error",
+            err(stitch_frames_feathered(&[(&a, i64::MAX, 0)], 3)),
+        ),
     ]
 }
 
@@ -173,6 +199,7 @@ fn perspective() -> Vec<Golden> {
     let skewed = [(10.0, 8.0), (110.0, 14.0), (104.0, 80.0), (6.0, 72.0)];
     let aligned = [(5.0, 5.0), (60.0, 5.0), (60.0, 50.0), (5.0, 50.0)];
     let degenerate = [(1.0, 1.0), (1.0, 1.0), (1.0, 1.0), (1.0, 1.0)];
+    let collinear = [(0.0, 0.0), (10.0, 10.0), (20.0, 20.0), (30.0, 30.0)];
     let unwarp = |quad, w, h| match unwarp_quad_rgba(&page, quad, w, h) {
         Ok(img) => hash_image(&img),
         Err(e) => hash_text(&e.to_string()),
@@ -187,6 +214,7 @@ fn perspective() -> Vec<Golden> {
         ("unwarp_skewed", unwarp(&skewed, 80, 60)),
         ("unwarp_zero_target", unwarp(&skewed, 0, 60)),
         ("unwarp_degenerate_quad", unwarp(&degenerate, 20, 20)),
+        ("unwarp_collinear_quad", unwarp(&collinear, 20, 20)),
         ("dewarp_tiny_image", dewarp(noise(5, 5, 6), 0.3)),
         (
             "dewarp_inset_box",
@@ -199,6 +227,22 @@ fn perspective() -> Vec<Golden> {
         (
             "dewarp_uniform",
             dewarp(RgbaImage::from_pixel(60, 60, Rgba([9, 9, 9, 255])), 0.5),
+        ),
+        (
+            "dewarp_page_on_black",
+            dewarp(bright_page_on_black(100, 80, 15), 0.2),
+        ),
+        (
+            "dewarp_page_on_black_full_frame",
+            dewarp(bright_page_on_black(100, 80, 1), 0.2),
+        ),
+        (
+            "dewarp_outlined_page",
+            dewarp(outlined_page(100, 80, 15), 0.05),
+        ),
+        (
+            "dewarp_outlined_full_frame",
+            dewarp(outlined_page(100, 80, 1), 0.05),
         ),
         ("dewarp_noise", dewarp(noise(64, 64, 7), 0.05)),
     ]
@@ -232,23 +276,11 @@ fn vectorizing() -> Vec<Golden> {
         ),
         (
             "moore_all_set",
-            hash_points(&trace_moore_neighbor_contours(
-                &vec![true; 36],
-                6,
-                6,
-                1.0,
-                1.0,
-            )),
+            hash_points(&trace_moore_neighbor_contours(&[true; 36], 6, 6, 1.0, 1.0)),
         ),
         (
             "moore_empty",
-            hash_points(&trace_moore_neighbor_contours(
-                &vec![false; 36],
-                6,
-                6,
-                1.0,
-                1.0,
-            )),
+            hash_points(&trace_moore_neighbor_contours(&[false; 36], 6, 6, 1.0, 1.0)),
         ),
         ("rdp_wave_tight", hash_points(&[simplify_rdp(&line, 0.3)])),
         ("rdp_wave_loose", hash_points(&[simplify_rdp(&line, 3.0)])),
@@ -313,6 +345,7 @@ const GOLDEN: &[Golden] = &[
     ("stitch_h_zero_error", 0x4679b42d8f6697ee),
     ("stitch_feathered", 0x89d0b29a60595f1c),
     ("stitch_feathered_empty_error", 0x76dcf9b7941e7ac7),
+    ("stitch_feathered_offset_overflow_error", 0xa7caed731f678427),
     ("zmad_vertical_40", 0x561359d199bb13fd),
     ("zmad_horizontal_30", 0x683500a1eac943cb),
     ("zmad_degenerate_overlap", 0x000000000000000c),
@@ -328,10 +361,15 @@ const GOLDEN: &[Golden] = &[
     ("unwarp_skewed", 0x6dc77e8e1429eff2),
     ("unwarp_zero_target", 0xa3edc2347624d566),
     ("unwarp_degenerate_quad", 0x8ba17dc88dcec2e7),
+    ("unwarp_collinear_quad", 0xf9ba11db1ff579d2),
     ("dewarp_tiny_image", 0xa1147580e98b6f35),
     ("dewarp_inset_box", 0x4a28f0c0ba0f9090),
     ("dewarp_full_frame_box", 0x7dd4e3f181506d80),
     ("dewarp_uniform", 0x1b7e95d8fd121e64),
+    ("dewarp_page_on_black", 0x3c8d0a029080d010),
+    ("dewarp_page_on_black_full_frame", 0x5c304508c4ae3610),
+    ("dewarp_outlined_page", 0x0cbb207eabe44ebd),
+    ("dewarp_outlined_full_frame", 0x0c9e90a8dec20610),
     ("dewarp_noise", 0x189118dd6b4e2ca7),
     ("otsu_two_levels", 0x000000000000001e),
     ("otsu_empty", 0x0000000000000080),

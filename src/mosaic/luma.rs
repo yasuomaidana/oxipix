@@ -2,99 +2,84 @@
 
 use image::RgbaImage;
 
-/// Calculates ITU-R BT.601 perceived luminance for an RGB triple.
-#[inline]
-#[must_use]
-pub fn rgb_to_luma_u8(r: u8, g: u8, b: u8) -> u8 {
-    ((u32::from(r) * 299 + u32::from(g) * 587 + u32::from(b) * 114) / 1000) as u8
-}
+pub use crate::luma::{rgb_to_luma_u8, rgba_to_luma_vec};
 
-/// Converts an RGBA image into an in-memory grayscale byte buffer.
-#[must_use]
-pub fn rgba_to_luma_vec(img: &RgbaImage) -> Vec<u8> {
-    let mut gray = Vec::with_capacity((img.width() * img.height()) as usize);
-    for p in img.pixels() {
-        gray.push(rgb_to_luma_u8(p[0], p[1], p[2]));
-    }
-    gray
-}
+/// A per-channel transform: `(channel, plane, width, height)` to the new plane.
+type ChannelMapper<'a> = dyn FnMut(usize, &[u8], usize, usize) -> Vec<u8> + 'a;
 
-/// Maps each RGB color channel (indices 0..3) independently through a transforming closure.
-pub fn map_rgb_channels<F>(img: &mut RgbaImage, mut f: F)
-where
-    F: FnMut(usize, &[u8], usize, usize) -> Vec<u8>,
-{
+/// Runs `f` over the first `channels` channels of `img`, one planar buffer at a time.
+///
+/// A result whose length is not `width * height` is ignored and leaves that channel untouched.
+fn map_channels(img: &mut RgbaImage, channels: usize, f: &mut ChannelMapper) {
     let (width, height) = img.dimensions();
-    let w = width as usize;
-    let h = height as usize;
+    let (w, h) = (width as usize, height as usize);
 
-    for c in 0..3 {
-        let mut channel_buf = Vec::with_capacity(w * h);
-        for y in 0..height {
-            for x in 0..width {
-                channel_buf.push(img.get_pixel(x, y)[c]);
-            }
-        }
-
-        let processed = f(c, &channel_buf, w, h);
+    for c in 0..channels {
+        let channel: Vec<u8> = img.pixels().map(|p| p[c]).collect();
+        let processed = f(c, &channel, w, h);
         if processed.len() == w * h {
-            for y in 0..height {
-                for x in 0..width {
-                    let idx = (y as usize) * w + (x as usize);
-                    img.get_pixel_mut(x, y)[c] = processed[idx];
-                }
+            for (pixel, value) in img.pixels_mut().zip(processed) {
+                pixel[c] = value;
             }
         }
     }
 }
 
-/// Maps each RGBA channel (indices 0..4) independently through a transforming closure.
-pub fn map_rgba_channels<F>(img: &mut RgbaImage, mut f: F)
-where
-    F: FnMut(usize, &[u8], usize, usize) -> Vec<u8>,
-{
-    let (width, height) = img.dimensions();
-    let w = width as usize;
-    let h = height as usize;
-
-    for c in 0..4 {
-        let mut channel_buf = Vec::with_capacity(w * h);
-        for y in 0..height {
-            for x in 0..width {
-                channel_buf.push(img.get_pixel(x, y)[c]);
-            }
+/// Defines a public channel mapper over the first `$n` channels.
+macro_rules! channel_mapper {
+    ($(#[$doc:meta])* $name:ident, $n:literal) => {
+        $(#[$doc])*
+        pub fn $name<F>(img: &mut RgbaImage, mut f: F)
+        where
+            F: FnMut(usize, &[u8], usize, usize) -> Vec<u8>,
+        {
+            map_channels(img, $n, &mut f);
         }
-
-        let processed = f(c, &channel_buf, w, h);
-        if processed.len() == w * h {
-            for y in 0..height {
-                for x in 0..width {
-                    let idx = (y as usize) * w + (x as usize);
-                    img.get_pixel_mut(x, y)[c] = processed[idx];
-                }
-            }
-        }
-    }
+    };
 }
+
+channel_mapper!(
+    /// Maps each RGB color channel (indices 0..3) independently through a transforming closure.
+    map_rgb_channels,
+    3
+);
+channel_mapper!(
+    /// Maps each RGBA channel (indices 0..4) independently through a transforming closure.
+    map_rgba_channels,
+    4
+);
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use image::Rgba;
 
-    #[test]
-    fn luma_matches_bt601_weights() {
-        assert_eq!(rgb_to_luma_u8(255, 255, 255), 255);
-        assert_eq!(rgb_to_luma_u8(0, 0, 0), 0);
-        assert_eq!(rgb_to_luma_u8(255, 0, 0), 76);
+    fn invert(_: usize, buf: &[u8], _: usize, _: usize) -> Vec<u8> {
+        buf.iter().map(|v| 255 - v).collect()
+    }
+
+    type Plane = fn(usize, &[u8], usize, usize) -> Vec<u8>;
+
+    fn inverted(map: fn(&mut RgbaImage, Plane)) -> Rgba<u8> {
+        let mut img = RgbaImage::from_pixel(3, 2, Rgba([10, 20, 30, 77]));
+        map(&mut img, invert);
+        *img.get_pixel(1, 1)
     }
 
     #[test]
-    fn map_rgb_channels_inverts_without_touching_alpha() {
-        let mut img = RgbaImage::from_pixel(3, 2, Rgba([10, 20, 30, 77]));
-        map_rgb_channels(&mut img, |_, buf, _, _| {
-            buf.iter().map(|v| 255 - v).collect()
-        });
-        assert_eq!(img.get_pixel(1, 1), &Rgba([245, 235, 225, 77]));
+    fn rgb_mapping_leaves_alpha_alone() {
+        assert_eq!(inverted(map_rgb_channels), Rgba([245, 235, 225, 77]));
+    }
+
+    #[test]
+    fn rgba_mapping_reaches_alpha() {
+        assert_eq!(inverted(map_rgba_channels), Rgba([245, 235, 225, 178]));
+    }
+
+    #[test]
+    fn a_result_of_the_wrong_length_is_ignored() {
+        let mut img = RgbaImage::from_pixel(2, 2, Rgba([1, 2, 3, 4]));
+        map_rgba_channels(&mut img, |_, _, _, _| vec![9]);
+        assert_eq!(img.get_pixel(1, 1), &Rgba([1, 2, 3, 4]));
     }
 }

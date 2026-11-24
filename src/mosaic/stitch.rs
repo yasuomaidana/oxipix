@@ -1,6 +1,7 @@
 //! Image stitching and multi-frame feathered composition.
 
 use super::error::MosaicError;
+use super::registration::OverlapAxis;
 use image::{Rgba, RgbaImage};
 use oximedia_cv::panorama_stitch::{PanoFormat, PanoramaConfig, PanoramaStitcher, StitchFrame};
 
@@ -10,52 +11,7 @@ pub fn stitch_pair_vertical(
     bottom: &RgbaImage,
     overlap_height: u32,
 ) -> Result<RgbaImage, MosaicError> {
-    let (w_top, h_top) = top.dimensions();
-    let (w_bottom, h_bottom) = bottom.dimensions();
-
-    if w_top == 0 || h_top == 0 || w_bottom == 0 || h_bottom == 0 {
-        return Err(MosaicError::InvalidDimensions {
-            width: w_top,
-            height: h_top,
-            reason: "Dimensions must be non-zero for vertical stitching".to_string(),
-        });
-    }
-
-    let unified_width = w_top.max(w_bottom);
-    let actual_overlap = overlap_height.min(h_top).min(h_bottom);
-    let unified_height = h_top + h_bottom - actual_overlap;
-
-    let mut canvas =
-        RgbaImage::from_pixel(unified_width, unified_height, Rgba([255, 255, 255, 255]));
-
-    for y in 0..h_top {
-        for x in 0..w_top {
-            canvas.put_pixel(x, y, *top.get_pixel(x, y));
-        }
-    }
-
-    let seam_start = h_top - actual_overlap;
-    for y in 0..h_bottom {
-        let canvas_y = seam_start + y;
-        for x in 0..w_bottom {
-            let bottom_pixel = bottom.get_pixel(x, y);
-            if y < actual_overlap {
-                let alpha = y as f32 / actual_overlap as f32;
-                let top_pixel = canvas.get_pixel(x, canvas_y);
-                let blended_r =
-                    ((1.0 - alpha) * top_pixel[0] as f32 + alpha * bottom_pixel[0] as f32) as u8;
-                let blended_g =
-                    ((1.0 - alpha) * top_pixel[1] as f32 + alpha * bottom_pixel[1] as f32) as u8;
-                let blended_b =
-                    ((1.0 - alpha) * top_pixel[2] as f32 + alpha * bottom_pixel[2] as f32) as u8;
-                canvas.put_pixel(x, canvas_y, Rgba([blended_r, blended_g, blended_b, 255]));
-            } else {
-                canvas.put_pixel(x, canvas_y, *bottom_pixel);
-            }
-        }
-    }
-
-    Ok(canvas)
+    stitch_pair(top, bottom, overlap_height, OverlapAxis::Vertical)
 }
 
 /// Merges two horizontally overlapping document image sections into a unified canvas.
@@ -64,52 +20,108 @@ pub fn stitch_pair_horizontal(
     right: &RgbaImage,
     overlap_width: u32,
 ) -> Result<RgbaImage, MosaicError> {
-    let (w_left, h_left) = left.dimensions();
-    let (w_right, h_right) = right.dimensions();
+    stitch_pair(left, right, overlap_width, OverlapAxis::Horizontal)
+}
 
-    if w_left == 0 || h_left == 0 || w_right == 0 || h_right == 0 {
-        return Err(MosaicError::InvalidDimensions {
-            width: w_left,
-            height: h_left,
-            reason: "Dimensions must be non-zero for horizontal stitching".to_string(),
-        });
+/// Rejects empty inputs; the message names the stitching direction.
+fn check_dimensions(
+    first: &RgbaImage,
+    second: &RgbaImage,
+    axis: OverlapAxis,
+) -> Result<(), MosaicError> {
+    let (w, h) = first.dimensions();
+    let any_empty = [first, second]
+        .iter()
+        .any(|i| i.width() == 0 || i.height() == 0);
+    if !any_empty {
+        return Ok(());
     }
+    let name = match axis {
+        OverlapAxis::Vertical => "vertical",
+        OverlapAxis::Horizontal => "horizontal",
+    };
+    Err(MosaicError::InvalidDimensions {
+        width: w,
+        height: h,
+        reason: format!("Dimensions must be non-zero for {name} stitching"),
+    })
+}
 
-    let unified_height = h_left.max(h_right);
-    let actual_overlap = overlap_width.min(w_left).min(w_right);
-    let unified_width = w_left + w_right - actual_overlap;
+/// Where two sections sit on the shared canvas.
+struct PairLayout {
+    axis: OverlapAxis,
+    /// Overlap clamped to both sections' extents along the axis.
+    overlap: u32,
+    /// Position along the axis where the second section starts.
+    seam_start: u32,
+    width: u32,
+    height: u32,
+}
 
-    let mut canvas =
-        RgbaImage::from_pixel(unified_width, unified_height, Rgba([255, 255, 255, 255]));
-
-    for y in 0..h_left {
-        for x in 0..w_left {
-            canvas.put_pixel(x, y, *left.get_pixel(x, y));
+impl PairLayout {
+    fn new(first: &RgbaImage, second: &RgbaImage, overlap: u32, axis: OverlapAxis) -> Self {
+        let (w1, h1) = first.dimensions();
+        let (w2, h2) = second.dimensions();
+        // Along the axis the extents add up minus the overlap; across it the larger one wins.
+        let (extent1, extent2, across) = match axis {
+            OverlapAxis::Vertical => (h1, h2, w1.max(w2)),
+            OverlapAxis::Horizontal => (w1, w2, h1.max(h2)),
+        };
+        let overlap = overlap.min(extent1).min(extent2);
+        let along = extent1 + extent2 - overlap;
+        let (width, height) = match axis {
+            OverlapAxis::Vertical => (across, along),
+            OverlapAxis::Horizontal => (along, across),
+        };
+        Self {
+            axis,
+            overlap,
+            seam_start: extent1 - overlap,
+            width,
+            height,
         }
     }
 
-    let seam_start = w_left - actual_overlap;
-    for y in 0..h_right {
-        for x in 0..w_right {
-            let canvas_x = seam_start + x;
-            let right_pixel = right.get_pixel(x, y);
-            if x < actual_overlap {
-                let alpha = x as f32 / actual_overlap as f32;
-                let left_pixel = canvas.get_pixel(canvas_x, y);
-                let blended_r =
-                    ((1.0 - alpha) * left_pixel[0] as f32 + alpha * right_pixel[0] as f32) as u8;
-                let blended_g =
-                    ((1.0 - alpha) * left_pixel[1] as f32 + alpha * right_pixel[1] as f32) as u8;
-                let blended_b =
-                    ((1.0 - alpha) * left_pixel[2] as f32 + alpha * right_pixel[2] as f32) as u8;
-                canvas.put_pixel(canvas_x, y, Rgba([blended_r, blended_g, blended_b, 255]));
-            } else {
-                canvas.put_pixel(canvas_x, y, *right_pixel);
-            }
+    /// Canvas position of the second section's pixel `(x, y)` and its depth into the overlap.
+    fn place(&self, x: u32, y: u32) -> (u32, u32, u32) {
+        match self.axis {
+            OverlapAxis::Vertical => (x, self.seam_start + y, y),
+            OverlapAxis::Horizontal => (self.seam_start + x, y, x),
         }
+    }
+}
+
+/// Cross-fades `second` over `first` along `axis`; the overlap is clamped to both extents.
+fn stitch_pair(
+    first: &RgbaImage,
+    second: &RgbaImage,
+    overlap: u32,
+    axis: OverlapAxis,
+) -> Result<RgbaImage, MosaicError> {
+    check_dimensions(first, second, axis)?;
+    let layout = PairLayout::new(first, second, overlap, axis);
+
+    let mut canvas = RgbaImage::from_pixel(layout.width, layout.height, Rgba([255, 255, 255, 255]));
+    image::imageops::replace(&mut canvas, first, 0, 0);
+
+    for (x, y, pixel) in second.enumerate_pixels() {
+        let (canvas_x, canvas_y, depth) = layout.place(x, y);
+        let out = if depth < layout.overlap {
+            let alpha = depth as f32 / layout.overlap as f32;
+            feather(canvas.get_pixel(canvas_x, canvas_y), pixel, alpha)
+        } else {
+            *pixel
+        };
+        canvas.put_pixel(canvas_x, canvas_y, out);
     }
 
     Ok(canvas)
+}
+
+/// Linear blend of the colour channels; the result is opaque.
+fn feather(below: &Rgba<u8>, above: &Rgba<u8>, alpha: f32) -> Rgba<u8> {
+    let mix = |c: usize| ((1.0 - alpha) * f32::from(below[c]) + alpha * f32::from(above[c])) as u8;
+    Rgba([mix(0), mix(1), mix(2), 255])
 }
 
 /// Stitches multiple RGBA frames with pixel offsets and linear alpha feathering.
@@ -149,7 +161,29 @@ pub fn stitch_frames_feathered(
         .stitch(&stitch_frames)
         .map_err(|e| MosaicError::StitchError(format!("Panorama stitch failed: {e}")))?;
 
-    RgbaImage::from_raw(pano.width, pano.height, pano.data).ok_or_else(|| {
+    image_from_panorama(pano.width, pano.height, pano.data)
+}
+
+/// Wraps the stitcher's RGBA buffer, which must hold exactly `width * height` pixels.
+fn image_from_panorama(width: u32, height: u32, data: Vec<u8>) -> Result<RgbaImage, MosaicError> {
+    RgbaImage::from_raw(width, height, data).ok_or_else(|| {
         MosaicError::StitchError("Failed to construct RgbaImage from panorama buffer".to_string())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_panorama_buffer_of_the_wrong_size_is_an_error() {
+        let err = image_from_panorama(2, 2, vec![0; 3]).unwrap_err();
+        assert!(matches!(err, MosaicError::StitchError(_)));
+    }
+
+    #[test]
+    fn a_panorama_buffer_of_the_right_size_becomes_an_image() {
+        let img = image_from_panorama(2, 1, vec![7; 8]).unwrap();
+        assert_eq!(img.dimensions(), (2, 1));
+    }
 }
