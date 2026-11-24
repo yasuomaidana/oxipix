@@ -1,0 +1,113 @@
+# Single CI workflow. Limits come from .github/dendrite/directives.toml and clippy.toml.
+name: ci
+permissions:
+  contents: read
+on:
+  push:
+    branches: [develop, main, "feature/**", "OXI-*"]
+  pull_request:
+    branches: [develop, main]
+
+env:
+  CARGO_TERM_COLOR: always
+  LOOM_GATE_REV: b3dd79d0190b29fe9815b21b30ca22c402c6f2be
+
+jobs:
+  quality:
+    name: Quality gates (loc, clones, complexity, structure, rstest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache loom-gate
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/loom-gate
+          key: loom-gate-${{ runner.os }}-${{ env.LOOM_GATE_REV }}
+      - name: Install loom-gate
+        run: command -v loom-gate >/dev/null || cargo install --locked --git https://github.com/yasuomaidana/dendrite-rag-rs --rev "$LOOM_GATE_REV" loom-gate
+      - run: loom-gate loc --format github
+      - run: loom-gate clones --format github
+      - run: loom-gate complexity --format github
+      - run: loom-gate structure --format github
+      - run: loom-gate rstest --format github
+
+  lint:
+    name: Format and clippy (all features)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - name: Clippy (cognitive complexity limit comes from clippy.toml)
+        run: cargo clippy --all-targets --all-features -- -D warnings -W clippy::cognitive_complexity
+
+  coverage:
+    name: Coverage floor (from directives)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Coverage floor from [coverage] min_percent
+        run: |
+          MIN=$(awk '/^\[coverage\]/{t=1;next} /^\[/{t=0} t && $1=="min_percent"{print int($3)}' .github/dendrite/directives.toml)
+          cargo llvm-cov --fail-under-lines "$MIN"
+
+  features:
+    name: Every feature on its own, plus tests with all features
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-hack
+      - run: cargo hack check --each-feature --no-dev-deps
+      - run: cargo test --all-features
+
+  msrv:
+    name: MSRV (rust-version in Cargo.toml)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read rust-version
+        id: msrv
+        run: echo "version=$(awk -F'"' '/^rust-version/{print $2}' Cargo.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --all-features --locked
+
+  docs:
+    name: Rustdoc builds without warnings (as docs.rs does)
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo doc --all-features --no-deps
+
+  supply-chain:
+    name: cargo-deny (licences, bans, advisories)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  package:
+    name: Package dry run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo publish --dry-run --locked
