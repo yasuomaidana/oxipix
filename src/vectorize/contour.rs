@@ -1,5 +1,6 @@
 //! Contour boundary tracing, polyline simplification, and SVG path synthesis.
 
+use crate::luma::rgba_to_luma_vec;
 use image::RgbaImage;
 
 /// Single vectorized contour path.
@@ -103,11 +104,7 @@ pub fn vectorize_rgba_to_svg(img: &RgbaImage, config: VectorizeConfig) -> Vector
         };
     }
 
-    let mut gray = Vec::with_capacity((width * height) as usize);
-    for p in img.pixels() {
-        let luma = (u32::from(p[0]) * 299 + u32::from(p[1]) * 587 + u32::from(p[2]) * 114) / 1000;
-        gray.push(luma as u8);
-    }
+    let gray = rgba_to_luma_vec(img);
 
     let thresh = otsu_threshold(&gray);
     let step = config.grid_step.max(1.0);
@@ -130,9 +127,6 @@ pub fn vectorize_rgba_to_svg(img: &RgbaImage, config: VectorizeConfig) -> Vector
 
     let mut paths = Vec::with_capacity(raw_contours.len());
     for raw in raw_contours {
-        if raw.len() < 3 {
-            continue;
-        }
         let simplified = simplify_rdp(&raw, config.rdp_epsilon);
         if simplified.len() >= 3 {
             paths.push(SvgVectorPath {
@@ -196,6 +190,83 @@ pub fn otsu_threshold(gray: &[u8]) -> u8 {
     best_thresh
 }
 
+/// Neighbour offsets in the order the Moore tracer probes them, starting north and going clockwise.
+const MOORE_DIRS: [(isize, isize); 8] = [
+    (0, -1),
+    (1, -1),
+    (1, 0),
+    (1, 1),
+    (0, 1),
+    (-1, 1),
+    (-1, 0),
+    (-1, -1),
+];
+
+/// A contour is cut off after this many steps (and never exceeds the grid's cell count).
+const MAX_CONTOUR_STEPS: usize = 1000;
+
+/// Row-major boolean grid.
+struct Grid<'a> {
+    cells: &'a [bool],
+    width: usize,
+    height: usize,
+}
+
+impl Grid<'_> {
+    fn is_set(&self, x: usize, y: usize) -> bool {
+        self.cells[y * self.width + x]
+    }
+
+    /// A set cell on the grid edge or with an unset 4-neighbour.
+    fn is_boundary(&self, x: usize, y: usize) -> bool {
+        let on_edge = x == 0 || y == 0 || x + 1 == self.width || y + 1 == self.height;
+        on_edge
+            || !self.is_set(x - 1, y)
+            || !self.is_set(x + 1, y)
+            || !self.is_set(x, y - 1)
+            || !self.is_set(x, y + 1)
+    }
+
+    /// First set neighbour of `(x, y)` probing clockwise from `dir`. Returns it with the direction
+    /// to resume probing from.
+    fn next_neighbor(&self, (x, y): (usize, usize), dir: usize) -> Option<((usize, usize), usize)> {
+        (0..MOORE_DIRS.len()).find_map(|step| {
+            let probe = (dir + step) % MOORE_DIRS.len();
+            let nx = usize::try_from(x as isize + MOORE_DIRS[probe].0).ok()?;
+            let ny = usize::try_from(y as isize + MOORE_DIRS[probe].1).ok()?;
+            let in_bounds = nx < self.width && ny < self.height;
+            (in_bounds && self.is_set(nx, ny)).then_some(((nx, ny), (probe + 6) % MOORE_DIRS.len()))
+        })
+    }
+
+    /// Walks the boundary from `start`, marking every cell it visits, until it returns to `start`,
+    /// runs out of neighbours or hits the step limit.
+    fn trace(
+        &self,
+        start: (usize, usize),
+        scale: (f32, f32),
+        visited: &mut [bool],
+    ) -> Vec<(f32, f32)> {
+        let mut contour = Vec::new();
+        let mut at = start;
+        let mut dir = 0usize;
+
+        for _ in 0..(self.width * self.height).min(MAX_CONTOUR_STEPS) {
+            visited[at.1 * self.width + at.0] = true;
+            contour.push((at.0 as f32 * scale.0, at.1 as f32 * scale.1));
+
+            let Some((next, next_dir)) = self.next_neighbor(at, dir) else {
+                break;
+            };
+            (at, dir) = (next, next_dir);
+            if at == start && contour.len() > 2 {
+                break;
+            }
+        }
+        contour
+    }
+}
+
 /// Traces contours across a downsampled 2D boolean grid using the Moore-Neighbor algorithm.
 #[must_use]
 pub fn trace_moore_neighbor_contours(
@@ -205,73 +276,22 @@ pub fn trace_moore_neighbor_contours(
     sx: f32,
     sy: f32,
 ) -> Vec<Vec<(f32, f32)>> {
+    let grid = Grid {
+        cells: grid,
+        width: gw,
+        height: gh,
+    };
     let mut visited = vec![false; gw * gh];
     let mut contours = Vec::new();
 
-    let moore_dirs: [(isize, isize); 8] = [
-        (0, -1),
-        (1, -1),
-        (1, 0),
-        (1, 1),
-        (0, 1),
-        (-1, 1),
-        (-1, 0),
-        (-1, -1),
-    ];
-
     for y in 0..gh {
         for x in 0..gw {
-            let idx = y * gw + x;
-            if grid[idx] && !visited[idx] {
-                let is_boundary = x == 0
-                    || y == 0
-                    || x + 1 == gw
-                    || y + 1 == gh
-                    || !grid[idx - 1]
-                    || !grid[idx + 1]
-                    || !grid[idx - gw]
-                    || !grid[idx + gw];
-
-                if !is_boundary {
-                    continue;
-                }
-
-                let mut contour = Vec::new();
-                let mut curr_x = x;
-                let mut curr_y = y;
-                let mut dir_idx = 0usize;
-
-                let max_steps = (gw * gh).min(1000);
-                for _ in 0..max_steps {
-                    visited[curr_y * gw + curr_x] = true;
-                    contour.push((curr_x as f32 * sx, curr_y as f32 * sy));
-
-                    let mut found_next = false;
-                    for d in 0..8 {
-                        let check_dir = (dir_idx + d) % 8;
-                        let nx = curr_x as isize + moore_dirs[check_dir].0;
-                        let ny = curr_y as isize + moore_dirs[check_dir].1;
-
-                        if nx >= 0 && nx < gw as isize && ny >= 0 && ny < gh as isize {
-                            let n_idx = (ny as usize) * gw + (nx as usize);
-                            if grid[n_idx] {
-                                curr_x = nx as usize;
-                                curr_y = ny as usize;
-                                dir_idx = (check_dir + 6) % 8;
-                                found_next = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    if !found_next || (curr_x == x && curr_y == y && contour.len() > 2) {
-                        break;
-                    }
-                }
-
-                if contour.len() >= 3 {
-                    contours.push(contour);
-                }
+            if !grid.is_set(x, y) || visited[y * gw + x] || !grid.is_boundary(x, y) {
+                continue;
+            }
+            let contour = grid.trace((x, y), (sx, sy), &mut visited);
+            if contour.len() >= 3 {
+                contours.push(contour);
             }
         }
     }
@@ -369,6 +389,37 @@ mod tests {
     fn rdp_collapses_collinear_points() {
         let pts = [(0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (3.0, 0.0)];
         assert_eq!(simplify_rdp(&pts, 0.1).len(), 2);
+    }
+
+    #[test]
+    fn an_empty_path_serializes_to_nothing_and_is_left_out_of_the_document() {
+        let empty = SvgVectorPath {
+            points: Vec::new(),
+            is_closed: true,
+        };
+        assert_eq!(empty.to_svg_path_data(), "");
+        let graphic = VectorizedGraphic {
+            width: 4,
+            height: 4,
+            paths: vec![empty],
+        };
+        assert!(!graphic.to_svg_string().contains("<path"));
+    }
+
+    #[test]
+    fn an_open_path_has_no_close_command() {
+        let open = SvgVectorPath {
+            points: vec![(0.0, 0.0), (1.5, 2.0)],
+            is_closed: false,
+        };
+        assert_eq!(open.to_svg_path_data(), "M 0.00 0.00 L 1.50 2.00");
+    }
+
+    #[test]
+    fn a_single_set_cell_yields_no_contour() {
+        let mut grid = vec![false; 9];
+        grid[4] = true;
+        assert!(trace_moore_neighbor_contours(&grid, 3, 3, 1.0, 1.0).is_empty());
     }
 
     #[test]

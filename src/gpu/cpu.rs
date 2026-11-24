@@ -1,27 +1,41 @@
 //! CPU reference implementations. They define the semantics the WGSL kernels must match
 //! (truncating quantisation, clamp-to-edge convolution, white outside the source).
 
+/// Weighted sum of the 3x3 neighbourhood of `(x, y)` for each colour channel, with borders
+/// clamped to the nearest edge pixel.
+fn convolve_pixel(
+    input: &[u8],
+    (w, h): (usize, usize),
+    (x, y): (usize, usize),
+    kernel: &[f32; 9],
+) -> [f32; 3] {
+    let mut acc = [0.0f32; 3];
+    for dy in -1i32..=1 {
+        for dx in -1i32..=1 {
+            let sx = (x as i32 + dx).clamp(0, w as i32 - 1) as usize;
+            let sy = (y as i32 + dy).clamp(0, h as i32 - 1) as usize;
+            let weight = kernel[((dy + 1) * 3 + (dx + 1)) as usize];
+            let src = (sy * w + sx) * 4;
+            for (c, a) in acc.iter_mut().enumerate() {
+                *a += f32::from(input[src + c]) * weight;
+            }
+        }
+    }
+    acc
+}
+
 /// 3x3 convolution over RGB with clamp-to-edge borders; alpha is copied through.
 #[must_use]
 pub fn convolve3x3(input: &[u8], width: u32, height: u32, kernel: &[f32; 9]) -> Vec<u8> {
-    let (w, h) = (width as usize, height as usize);
-    let mut out = vec![0u8; w * h * 4];
-    for y in 0..h {
-        for x in 0..w {
-            let mut acc = [0.0f32; 3];
-            for dy in -1i32..=1 {
-                for dx in -1i32..=1 {
-                    let sx = (x as i32 + dx).clamp(0, w as i32 - 1) as usize;
-                    let sy = (y as i32 + dy).clamp(0, h as i32 - 1) as usize;
-                    let weight = kernel[((dy + 1) * 3 + (dx + 1)) as usize];
-                    let src = (sy * w + sx) * 4;
-                    for (c, a) in acc.iter_mut().enumerate() {
-                        *a += f32::from(input[src + c]) * weight;
-                    }
-                }
-            }
-            let dst = (y * w + x) * 4;
-            for (c, a) in acc.iter().enumerate() {
+    let size = (width as usize, height as usize);
+    let mut out = vec![0u8; size.0 * size.1 * 4];
+    for y in 0..size.1 {
+        for x in 0..size.0 {
+            let dst = (y * size.0 + x) * 4;
+            for (c, a) in convolve_pixel(input, size, (x, y), kernel)
+                .iter()
+                .enumerate()
+            {
                 out[dst + c] = a.clamp(0.0, 255.0) as u8;
             }
             out[dst + 3] = input[dst + 3];

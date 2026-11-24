@@ -1,13 +1,32 @@
 [package]
 name = "oxipix"
-version = "0.2.0"
+version = "0.1.0"
 edition = "2024"
+rust-version = "1.89"
 description = "Document-capture toolkit on top of `image`: optional wgpu acceleration, perspective unwarping, mosaic stitching and raster-to-vector tracing"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/yasuomaidana/oxipix"
+documentation = "https://docs.rs/oxipix"
+readme = "README.md"
+keywords = ["image", "gpu", "wgpu", "document-scanning", "computer-vision"]
+categories = ["multimedia::images", "computer-vision", "graphics"]
+include = [
+    "/src/**/*.rs",
+    "/examples/**/*.rs",
+    "/benches/**/*.rs",
+    "/tests/**/*.rs",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/LICENSE-MIT",
+    "/LICENSE-APACHE",
+]
+
+[package.metadata.docs.rs]
+all-features = true
 
 [dependencies]
 image = { version = "0.25", default-features = false }
-thiserror = "2.0.21"
+thiserror = { version = "2.0.21", optional = true }
 oximedia-cv = { version = "0.2.1", optional = true }
 bytemuck = { version = "1.25.2", optional = true }
 wgpu = { version = "30.0.1", optional = true }
@@ -16,9 +35,9 @@ pollster = { version = "1.0.1", optional = true }
 [features]
 default = ["mosaic", "vectorize"]
 # wgpu compute acceleration (opt-in; every operation has a CPU fallback)
-gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck", "dep:thiserror"]
 # 2D registration, strip overlap detection, perspective unwarp and stitching
-mosaic = ["dep:oximedia-cv"]
+mosaic = ["dep:oximedia-cv", "dep:thiserror"]
 # Otsu + Moore-neighbour contour tracing + RDP simplification + SVG synthesis
 vectorize = []
 
@@ -26,8 +45,21 @@ vectorize = []
 criterion = "0.8.2"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 imageproc = { version = "0.25", default-features = false }
+rstest = "0.29.0"
 
 [[bench]]
 name = "gpu_vs_cpu"
 harness = false
+required-features = ["gpu"]
+
+[[example]]
+name = "unwarp_receipt"
+required-features = ["mosaic"]
+
+[[example]]
+name = "vectorize_svg"
+required-features = ["vectorize"]
+
+[[example]]
+name = "gpu_blur"
 required-features = ["gpu"]
