@@ -3,7 +3,7 @@
 [![crates.io](https://img.shields.io/crates/v/oxipix.svg)](https://crates.io/crates/oxipix)
 [![docs.rs](https://docs.rs/oxipix/badge.svg)](https://docs.rs/oxipix)
 [![CI](https://github.com/yasuomaidana/oxipix/actions/workflows/ci.yml/badge.svg)](https://github.com/yasuomaidana/oxipix/actions/workflows/ci.yml)
-[![MSRV](https://img.shields.io/badge/rustc-1.88%2B-blue.svg)](https://blog.rust-lang.org/)
+[![MSRV](https://img.shields.io/badge/rustc-1.89%2B-blue.svg)](https://blog.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
 **Document-capture building blocks for Rust, on top of the [`image`](https://crates.io/crates/image) crate.**
@@ -32,7 +32,7 @@ image = { version = "0.25", features = ["png", "jpeg"] }
 oxipix depends on `image` with default features off, so it never decides which codecs you carry. Enable the ones you
 need on your own `image` dependency. Opt in to the GPU path with `oxipix = { version = "0.1", features = ["gpu"] }`.
 
-Requires Rust 1.88 or newer.
+Requires Rust 1.89 or newer.
 
 ## Quickstart
 

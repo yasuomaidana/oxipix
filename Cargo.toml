@@ -2,7 +2,7 @@
 name = "oxipix"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.89"
 description = "Document-capture toolkit on top of `image`: optional wgpu acceleration, perspective unwarping, mosaic stitching and raster-to-vector tracing"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/yasuomaidana/oxipix"
