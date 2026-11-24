@@ -1,0 +1,12 @@
+# cargo release <level>            -> dry run
+# cargo release <level> --execute  -> bump, commit, tag, publish, push
+
+# One tag per version, matching the CHANGELOG headings.
+tag-name = "v{{version}}"
+pre-release-commit-message = "chore: release v{{version}}"
+# The website is a private npm package; only the crate is published.
+publish = true
+# Keep the CHANGELOG honest: the release replaces the Unreleased heading.
+pre-release-replacements = [
+  { file = "CHANGELOG.md", search = "## \\[Unreleased\\]", replace = "## [Unreleased]\n\n## [{{version}}] - {{date}}", exactly = 1 },
+]

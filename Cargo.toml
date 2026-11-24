@@ -1,9 +1,27 @@
 [package]
 name = "oxipix"
-version = "0.2.0"
+version = "0.1.0"
 edition = "2024"
+rust-version = "1.88"
 description = "Document-capture toolkit on top of `image`: optional wgpu acceleration, perspective unwarping, mosaic stitching and raster-to-vector tracing"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/yasuomaidana/oxipix"
+documentation = "https://docs.rs/oxipix"
+readme = "README.md"
+keywords = ["image", "gpu", "wgpu", "document-scanning", "computer-vision"]
+categories = ["multimedia::images", "computer-vision", "graphics"]
+include = [
+    "src/**/*.rs",
+    "examples/**/*.rs",
+    "benches/**/*.rs",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE",
+]
+
+[package.metadata.docs.rs]
+all-features = true
 
 [dependencies]
 image = { version = "0.25", default-features = false }
@@ -31,4 +49,16 @@ rstest = "0.29.0"
 [[bench]]
 name = "gpu_vs_cpu"
 harness = false
+required-features = ["gpu"]
+
+[[example]]
+name = "unwarp_receipt"
+required-features = ["mosaic"]
+
+[[example]]
+name = "vectorize_svg"
+required-features = ["vectorize"]
+
+[[example]]
+name = "gpu_blur"
 required-features = ["gpu"]
