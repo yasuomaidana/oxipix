@@ -5,3 +5,5 @@ and `rxing` with in-tree crates. That approach was abandoned: the replacements w
 (the PNG/JPEG decoders were stubs, barcode support was QR-only) and slower than upstream on
 most operations. The code they document no longer exists. See [`../../DEV_STATUS.md`](../../DEV_STATUS.md)
 and [`../FORKS.md`](../FORKS.md) for the current direction.
+
+`16_DOCUMENT_CAPTURE_AND_RECEIPT_IMAGING.md` is the last document written for the workspace design; its tickets are re-assessed in [`../03_ROADMAP.md`](../03_ROADMAP.md).

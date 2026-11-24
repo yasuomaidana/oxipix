@@ -1,3 +1,7 @@
+> **Archived.** This specification assessed the deleted seven-crate workspace (`oxipix-codecs`, `oxipix-compat-image`,
+> `oxipix-barcode`). Each ticket was re-assessed against the current single crate in
+> [`../03_ROADMAP.md`](../03_ROADMAP.md), which replaces this document.
+
 # 16 — Document Capture & Receipt Imaging
 
 ## 1. Purpose

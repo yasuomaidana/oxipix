@@ -6,7 +6,6 @@ Forks live under the `yasuomaidana` GitHub account and are cloned next to this r
 
 - `main`: mirrors upstream. Update with `git fetch upstream && git merge --ff-only upstream/main`.
 - `feat/<topic>` / `fix/<topic>` / `perf/<topic>`: one branch per upstream PR, cut from upstream `main`.
-- `oxipix-integration`: merge of all topic branches. Consumers use it via `[patch.crates-io]` pinned by `rev`.
 
 ## Rules
 
@@ -28,10 +27,13 @@ Forks live under the `yasuomaidana` GitHub account and are cloned next to this r
 
 ## Consuming
 
+Nothing consumes the forks. oxipix and docula use the released `image` and `rxing` crates; the forks are only staging
+for upstream pull requests. A `[patch.crates-io]` entry to a fork would make a crate unpublishable, so do not add one
+to oxipix. To try a fork locally in a throwaway checkout:
+
 ```toml
 [patch.crates-io]
 image = { git = "https://github.com/yasuomaidana/image", rev = "<sha>" }
-rxing = { git = "https://github.com/yasuomaidana/rxing", rev = "<sha>" }
 ```
 
 ## State
