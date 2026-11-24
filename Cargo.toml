@@ -11,13 +11,14 @@ readme = "README.md"
 keywords = ["image", "gpu", "wgpu", "document-scanning", "computer-vision"]
 categories = ["multimedia::images", "computer-vision", "graphics"]
 include = [
-    "src/**/*.rs",
-    "examples/**/*.rs",
-    "benches/**/*.rs",
-    "README.md",
-    "CHANGELOG.md",
-    "LICENSE-MIT",
-    "LICENSE-APACHE",
+    "/src/**/*.rs",
+    "/examples/**/*.rs",
+    "/benches/**/*.rs",
+    "/tests/**/*.rs",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/LICENSE-MIT",
+    "/LICENSE-APACHE",
 ]
 
 [package.metadata.docs.rs]
