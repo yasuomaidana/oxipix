@@ -32,6 +32,7 @@ pub(crate) const PARALLEL_MIN_ELEMENTS: usize = 1 << 18;
 /// With the `parallel` feature and at least [`PARALLEL_MIN_ELEMENTS`] elements the bands run on the rayon pool
 /// (the caller's pool, so `ThreadPoolBuilder::install` sets the thread count); otherwise `work` gets every
 /// row at once. Each output row must depend only on shared input, so both paths give identical results.
+#[inline(always)]
 pub(crate) fn for_each_band<T, F>(out: &mut [T], row_len: usize, work: F)
 where
     T: Send,
@@ -60,6 +61,7 @@ pub(crate) fn with_min_elements<R>(min: usize, f: impl FnOnce() -> R) -> R {
 }
 
 /// [`for_each_band`] with an explicit threshold, so tests can force the parallel path on small data.
+#[inline(always)]
 pub(crate) fn for_each_band_with<T, F>(min_elements: usize, out: &mut [T], row_len: usize, work: F)
 where
     T: Send,

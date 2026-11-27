@@ -80,9 +80,9 @@ where
     let row_len = width * c;
     let mut out = vec![0u8; row_len * height];
     for_each_band(&mut out, row_len, |first, band| {
-        for (k, row) in band.chunks_exact_mut(row_len).enumerate() {
-            let y = first + k;
-            for (x, pixel) in row.chunks_exact_mut(c).enumerate() {
+        let mut local = Vec::with_capacity(band.len());
+        for y in first..first + band.len() / row_len {
+            for x in 0..width {
                 let centre = &padded[(y + r) * stride + (x + r) * c..][..c];
                 let (mut sum, mut total) = ([0.0f32; 4], 0.0f32);
                 for tap in &spatial {
@@ -98,12 +98,10 @@ where
                         .zip(&mut sum)
                         .for_each(|(a, s)| *s += weight * f32::from(*a));
                 }
-                pixel
-                    .iter_mut()
-                    .zip(&sum)
-                    .for_each(|(d, s)| *d = (s / total + 0.5) as u8);
+                local.extend(sum[..c].iter().map(|s| (s / total + 0.5) as u8));
             }
         }
+        band.copy_from_slice(&local);
     });
     ImageBuffer::from_raw(w, h, out).expect("same length as the input buffer")
 }

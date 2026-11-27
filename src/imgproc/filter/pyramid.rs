@@ -10,47 +10,6 @@ use image::{ImageBuffer, Pixel};
 /// The binomial kernel `[1, 4, 6, 4, 1] / 16`, as integers.
 const KERNEL: [u16; 5] = [1, 4, 6, 4, 1];
 
-/// Work buffers of one band of output rows.
-struct Scratch {
-    down: Vec<u16>,
-    across: Vec<u16>,
-    padded: Vec<u16>,
-}
-
-/// The source picture's row geometry: `(row_len, height, channels)`.
-type Geometry = (usize, usize, usize);
-
-/// Output row `oy`: the five source rows around row `2 * oy` summed vertically, then summed horizontally and
-/// decimated into `dst`.
-fn output_row(
-    raw: &[u8],
-    (row_len, height, channels): Geometry,
-    oy: usize,
-    scratch: &mut Scratch,
-    dst: &mut [u8],
-) {
-    let Scratch {
-        down,
-        across,
-        padded,
-    } = scratch;
-    down.fill(0);
-    for (t, weight) in KERNEL.iter().enumerate() {
-        let row = clamp_row(2 * oy, t as isize - 2, height);
-        accumulate(down, &raw[row * row_len..][..row_len], *weight);
-    }
-    pad_row(down, channels, 2, padded);
-    across.fill(0);
-    for (t, weight) in KERNEL.iter().enumerate() {
-        accumulate(across, &padded[t * channels..], *weight);
-    }
-    for (ox, pixel) in dst.chunks_exact_mut(channels).enumerate() {
-        for (d, v) in pixel.iter_mut().zip(&across[2 * ox * channels..]) {
-            *d = ((v + 128) >> 8) as u8;
-        }
-    }
-}
-
 /// Halves both sides (rounding up) after a binomial blur, like `cv::pyrDown`.
 #[must_use]
 pub fn pyr_down<P>(image: &ImageBuffer<P, Vec<u8>>) -> ImageBuffer<P, Vec<u8>>
@@ -62,20 +21,35 @@ where
         return image.clone();
     }
     let channels = usize::from(P::CHANNEL_COUNT);
-    let geometry = (w as usize * channels, h as usize, channels);
+    let (row_len, height) = (w as usize * channels, h as usize);
     let (out_w, out_h) = (w.div_ceil(2) as usize, h.div_ceil(2) as usize);
     let out_row = out_w * channels;
     let raw = image.as_raw();
     let mut out = vec![0u8; out_row * out_h];
     for_each_band(&mut out, out_row, |first, band| {
-        let mut scratch = Scratch {
-            down: vec![0; geometry.0],
-            across: vec![0; geometry.0],
-            padded: Vec::new(),
-        };
-        for (k, dst) in band.chunks_exact_mut(out_row).enumerate() {
-            output_row(raw, geometry, first + k, &mut scratch, dst);
+        let mut local = Vec::with_capacity(band.len());
+        let (mut down, mut across) = (vec![0u16; row_len], vec![0u16; row_len]);
+        let mut padded = Vec::new();
+        for oy in first..first + band.len() / out_row {
+            down.fill(0);
+            for (t, weight) in KERNEL.iter().enumerate() {
+                let row = clamp_row(2 * oy, t as isize - 2, height);
+                accumulate(&mut down, &raw[row * row_len..][..row_len], *weight);
+            }
+            pad_row(&down, channels, 2, &mut padded);
+            across.fill(0);
+            for (t, weight) in KERNEL.iter().enumerate() {
+                accumulate(&mut across, &padded[t * channels..], *weight);
+            }
+            for ox in 0..out_w {
+                local.extend(
+                    across[2 * ox * channels..][..channels]
+                        .iter()
+                        .map(|v| ((v + 128) >> 8) as u8),
+                );
+            }
         }
+        band.copy_from_slice(&local);
     });
     ImageBuffer::from_raw(out_w as u32, out_h as u32, out).expect("out_w * out_h * channels bytes")
 }
