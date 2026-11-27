@@ -100,6 +100,16 @@ flowchart LR
     V --> SVG[SVG paths]
 ```
 
+## OpenCV-style kernels (`imgproc`)
+
+Fast 8-bit kernels written so the compiler can vectorise them, with the same results as `imageproc`:
+`imgproc::template::match_template` (FFT, all four `imageproc` scores), `imgproc::morph` (erode, dilate, open, close,
+top-hat, black-hat, gradient) and `imgproc::median::median_blur`. On a 451 x 300 photograph, a 40 x 40 template takes
+2.3 ms against 120 ms for `imageproc`, a 5 x 5 median over RGB takes 3.2 ms against 17 ms, and a 5 x 5 erosion of a
+303 x 384 mask takes 33 us against 89 us (`cargo bench --bench imgproc_vs_imageproc`, Apple M-series, one thread).
+The [rust-cv-guide performance queue](https://github.com/yasuomaidana/rust-cv-guide/blob/main/PERF_QUEUE.md) tracks
+the remaining gaps to OpenCV 5.1.0.
+
 ## Measured performance
 
 `cargo bench --features gpu --bench gpu_vs_cpu`, Apple M3 (Metal), 1600 x 1200 RGBA, criterion median, **including

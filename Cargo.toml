@@ -31,15 +31,19 @@ oximedia-cv = { version = "0.2.1", optional = true }
 bytemuck = { version = "1.25.2", optional = true }
 wgpu = { version = "30.0.1", optional = true }
 pollster = { version = "1.0.1", optional = true }
+realfft = { version = "3.5", optional = true }
+rustfft = { version = "6.4", optional = true }
 
 [features]
-default = ["mosaic", "vectorize"]
+default = ["mosaic", "vectorize", "imgproc"]
 # wgpu compute acceleration (opt-in; every operation has a CPU fallback)
 gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck", "dep:thiserror"]
 # 2D registration, strip overlap detection, perspective unwarp and stitching
 mosaic = ["dep:oximedia-cv", "dep:thiserror"]
 # Otsu + Moore-neighbour contour tracing + RDP simplification + SVG synthesis
 vectorize = []
+# OpenCV-style image processing kernels on u8 images: morphology, median, template matching (FFT)
+imgproc = ["dep:realfft", "dep:rustfft"]
 
 [dev-dependencies]
 criterion = "0.8.2"
@@ -63,3 +67,8 @@ required-features = ["vectorize"]
 [[example]]
 name = "gpu_blur"
 required-features = ["gpu"]
+
+[[bench]]
+name = "imgproc_vs_imageproc"
+harness = false
+required-features = ["imgproc"]
