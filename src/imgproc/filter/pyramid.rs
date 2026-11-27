@@ -27,6 +27,8 @@ where
     let raw = image.as_raw();
     let mut out = vec![0u8; out_row * out_h];
     for_each_band(&mut out, out_row, |first, band| {
+        // Derived from the type inside the closure, so it is a constant however the closure is compiled.
+        let channels = usize::from(P::CHANNEL_COUNT);
         let mut local = Vec::with_capacity(band.len());
         let (mut down, mut across) = (vec![0u16; row_len], vec![0u16; row_len]);
         let mut padded = Vec::new();

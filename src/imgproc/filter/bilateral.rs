@@ -80,6 +80,8 @@ where
     let row_len = width * c;
     let mut out = vec![0u8; row_len * height];
     for_each_band(&mut out, row_len, |first, band| {
+        // Derived from the type inside the closure, so it is a constant however the closure is compiled.
+        let c = usize::from(P::CHANNEL_COUNT);
         let mut local = Vec::with_capacity(band.len());
         for y in first..first + band.len() / row_len {
             for x in 0..width {
