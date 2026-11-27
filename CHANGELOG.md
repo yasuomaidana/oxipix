@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `imgproc` (default feature): OpenCV-style kernels on 8-bit images that the compiler can vectorise.
+  Wave 1: `imgproc::template::match_template` (FFT cross-correlation with integral-image window energies; the four
+  `imageproc` scores), `imgproc::morph` (`erode`, `dilate`, `open`, `close`, `top_hat`, `black_hat`, `gradient` with a
+  rectangular window in `O(log window)` whole-row passes) and `imgproc::median::median_blur` (selection network over
+  16 pixels at a time for 3x3 and 5x5 windows, window selection for larger radii).
+- Benchmark `imgproc_vs_imageproc` and the dependencies `realfft` and `rustfft` (only with `imgproc`).
+
 ## [0.1.0] - 2026-11-24
 
 First release on crates.io. Earlier `0.1.x` and `0.2.0` numbers were internal and were never published.

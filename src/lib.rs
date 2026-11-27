@@ -12,3 +12,6 @@ pub mod mosaic;
 
 #[cfg(feature = "vectorize")]
 pub mod vectorize;
+
+#[cfg(feature = "imgproc")]
+pub mod imgproc;
