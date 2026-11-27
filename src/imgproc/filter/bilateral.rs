@@ -6,7 +6,7 @@
 //! table reads and a few multiply-adds instead of an `exp`. Pixels outside the picture repeat the nearest
 //! edge pixel.
 
-use crate::imgproc::rows::pad_row;
+use crate::imgproc::rows::{for_each_band, pad_row};
 use image::{ImageBuffer, Pixel};
 
 /// A neighbour offset inside the window with its spatial weight.
@@ -77,27 +77,34 @@ where
         padded.extend_from_slice(&row);
     }
     let (spatial, colour) = (taps(r, sigma_space), color_weights(c, sigma_color));
-    let mut out = Vec::with_capacity(width * height * c);
-    for y in 0..height {
-        for x in 0..width {
-            let centre = &padded[(y + r) * stride + (x + r) * c..][..c];
-            let (mut sum, mut total) = ([0.0f32; 4], 0.0f32);
-            for tap in &spatial {
-                let at = &padded[(y + tap.dy) * stride + (x + tap.dx) * c..][..c];
-                let difference: usize = at
-                    .iter()
-                    .zip(centre)
-                    .map(|(a, b)| usize::from(a.abs_diff(*b)))
-                    .sum();
-                let weight = tap.weight * colour[difference];
-                total += weight;
-                at.iter()
-                    .zip(&mut sum)
-                    .for_each(|(a, s)| *s += weight * f32::from(*a));
+    let row_len = width * c;
+    let mut out = vec![0u8; row_len * height];
+    for_each_band(&mut out, row_len, |first, band| {
+        for (k, row) in band.chunks_exact_mut(row_len).enumerate() {
+            let y = first + k;
+            for (x, pixel) in row.chunks_exact_mut(c).enumerate() {
+                let centre = &padded[(y + r) * stride + (x + r) * c..][..c];
+                let (mut sum, mut total) = ([0.0f32; 4], 0.0f32);
+                for tap in &spatial {
+                    let at = &padded[(y + tap.dy) * stride + (x + tap.dx) * c..][..c];
+                    let difference: usize = at
+                        .iter()
+                        .zip(centre)
+                        .map(|(a, b)| usize::from(a.abs_diff(*b)))
+                        .sum();
+                    let weight = tap.weight * colour[difference];
+                    total += weight;
+                    at.iter()
+                        .zip(&mut sum)
+                        .for_each(|(a, s)| *s += weight * f32::from(*a));
+                }
+                pixel
+                    .iter_mut()
+                    .zip(&sum)
+                    .for_each(|(d, s)| *d = (s / total + 0.5) as u8);
             }
-            out.extend(sum[..c].iter().map(|s| (s / total + 0.5) as u8));
         }
-    }
+    });
     ImageBuffer::from_raw(w, h, out).expect("same length as the input buffer")
 }
 

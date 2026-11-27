@@ -5,6 +5,7 @@
 //! place, which compiles to byte-wise vector instructions. Larger windows fall back to selecting the middle
 //! value of each window. Pixels outside the picture repeat the nearest edge pixel.
 
+use crate::imgproc::rows::for_each_band;
 use image::{ImageBuffer, Pixel};
 
 /// Pixels a network step handles at once.
@@ -62,17 +63,20 @@ fn network_plane<const N: usize>(
     let stride = wide + 2 * radius;
     let side = 2 * radius + 1;
     let mut out = vec![0u8; wide * height];
-    for y in 0..height {
-        for x0 in (0..wide).step_by(LANES) {
-            let mut values = [[0u8; LANES]; N];
-            for (k, lane) in values.iter_mut().enumerate() {
-                let start = (y + k / side) * stride + x0 + k % side;
-                lane.copy_from_slice(&padded[start..start + LANES]);
+    for_each_band(&mut out, wide, |first, band| {
+        for (k, row) in band.chunks_exact_mut(wide).enumerate() {
+            let y = first + k;
+            for x0 in (0..wide).step_by(LANES) {
+                let mut values = [[0u8; LANES]; N];
+                for (j, lane) in values.iter_mut().enumerate() {
+                    let start = (y + j / side) * stride + x0 + j % side;
+                    lane.copy_from_slice(&padded[start..start + LANES]);
+                }
+                select(&mut values);
+                row[x0..][..LANES].copy_from_slice(&values[N / 2]);
             }
-            select(&mut values);
-            out[y * wide + x0..][..LANES].copy_from_slice(&values[N / 2]);
         }
-    }
+    });
     out.chunks_exact(wide)
         .flat_map(|row| &row[..width])
         .copied()

@@ -23,6 +23,11 @@ All notable changes to this project are documented here. The format follows
   integral image, Hamming matching), `hough` (standard line transform with OpenCV's peak rule, gradient-method
   circles) and `distance` (exact Euclidean, city-block and chessboard transforms). The modules are grouped in
   `filter`, `detect`, `geometry` and `color` and re-exported as `imgproc::<name>`.
+- `parallel` feature (off by default, needs `imgproc`): `box_blur`, `gaussian_blur`, `pyr_down`, `median_blur`,
+  `bilateral_filter`, `warp_affine`, `warp_perspective` and `filter2d` split their output rows into bands and run them on
+  the rayon pool, but only for at least about a quarter of a megapixel of output, so small pictures stay on the calling
+  thread. Results are identical with and without the feature (tests force both paths). The thread count is the
+  caller's rayon pool (`ThreadPoolBuilder::install`).
 - Benchmark `imgproc_vs_imageproc` and the dependencies `realfft` and `rustfft` (only with `imgproc`).
 
 ## [0.1.0] - 2026-11-24

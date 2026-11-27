@@ -5,7 +5,7 @@
 //! Pixels outside the picture repeat the nearest edge pixel. Results differ from an exact floating-point
 //! blur by at most 1 level, because the intermediate image is rounded to 8 bits as well.
 
-use crate::imgproc::rows::{accumulate, clamp_row, pad_row};
+use crate::imgproc::rows::{accumulate, clamp_row, for_each_band, pad_row};
 use image::{ImageBuffer, Pixel};
 
 /// Largest radius whose weights still fit a 16-bit sum of 8-bit values.
@@ -49,29 +49,36 @@ where
     let channels = usize::from(P::CHANNEL_COUNT);
     let (row_len, height, radius) = (w as usize * channels, h as usize, weights.len() / 2);
     let inverse = 1.0 / weights.iter().map(|w| f32::from(*w)).sum::<f32>();
+    let raw = image.as_raw();
     let mut across = vec![0u8; row_len * height];
-    let (mut padded, mut acc) = (Vec::new(), vec![0u16; row_len]);
-    for (src, dst) in image
-        .as_raw()
-        .chunks_exact(row_len)
-        .zip(across.chunks_exact_mut(row_len))
-    {
-        pad_row(src, channels, radius, &mut padded);
-        acc.fill(0);
-        for (t, weight) in weights.iter().enumerate() {
-            accumulate(&mut acc, &padded[t * channels..], *weight);
+    for_each_band(&mut across, row_len, |first, band| {
+        let (mut padded, mut acc) = (Vec::new(), vec![0u16; row_len]);
+        for (k, dst) in band.chunks_exact_mut(row_len).enumerate() {
+            pad_row(
+                &raw[(first + k) * row_len..][..row_len],
+                channels,
+                radius,
+                &mut padded,
+            );
+            acc.fill(0);
+            for (t, weight) in weights.iter().enumerate() {
+                accumulate(&mut acc, &padded[t * channels..], *weight);
+            }
+            finish(&acc, inverse, dst);
         }
-        finish(&acc, inverse, dst);
-    }
+    });
     let mut out = vec![0u8; row_len * height];
-    for (y, dst) in out.chunks_exact_mut(row_len).enumerate() {
-        acc.fill(0);
-        for (t, weight) in weights.iter().enumerate() {
-            let row = clamp_row(y, t as isize - radius as isize, height);
-            accumulate(&mut acc, &across[row * row_len..][..row_len], *weight);
+    for_each_band(&mut out, row_len, |first, band| {
+        let mut acc = vec![0u16; row_len];
+        for (k, dst) in band.chunks_exact_mut(row_len).enumerate() {
+            acc.fill(0);
+            for (t, weight) in weights.iter().enumerate() {
+                let row = clamp_row(first + k, t as isize - radius as isize, height);
+                accumulate(&mut acc, &across[row * row_len..][..row_len], *weight);
+            }
+            finish(&acc, inverse, dst);
         }
-        finish(&acc, inverse, dst);
-    }
+    });
     ImageBuffer::from_raw(w, h, out).expect("same length as the input buffer")
 }
 

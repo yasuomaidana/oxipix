@@ -13,6 +13,9 @@ mod median_networks;
 
 mod rows;
 
+#[cfg(test)]
+mod parallel_tests;
+
 pub mod color;
 pub mod detect;
 pub mod filter;

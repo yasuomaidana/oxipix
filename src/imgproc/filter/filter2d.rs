@@ -4,7 +4,7 @@
 //! `f32` accumulators, so the inner loop is a plain element-wise multiply-add that vectorises. Pixels outside
 //! the picture repeat the nearest edge pixel; results are rounded and saturated to 0..=255.
 
-use crate::imgproc::rows::{clamp_row, pad_row};
+use crate::imgproc::rows::{clamp_row, for_each_band, pad_row};
 use image::{ImageBuffer, Pixel};
 
 /// Correlates every channel with the `side x side` row-major `kernel` (`side` odd).
@@ -38,19 +38,23 @@ where
         pad_row(src, c, r, &mut row);
         padded.extend_from_slice(&row);
     }
-    let mut out = Vec::with_capacity(row_len * height);
-    let mut acc = vec![0.0f32; row_len];
-    for y in 0..height {
-        acc.fill(0.0);
-        for (k, weight) in kernel.iter().enumerate() {
-            let source = clamp_row(y, (k / side) as isize - r as isize, height);
-            let line = &padded[source * stride + (k % side) * c..];
-            acc.iter_mut()
-                .zip(line)
-                .for_each(|(a, s)| *a += weight * f32::from(*s));
+    let mut out = vec![0u8; row_len * height];
+    for_each_band(&mut out, row_len, |first, band| {
+        let mut acc = vec![0.0f32; row_len];
+        for (k, dst) in band.chunks_exact_mut(row_len).enumerate() {
+            acc.fill(0.0);
+            for (j, weight) in kernel.iter().enumerate() {
+                let source = clamp_row(first + k, (j / side) as isize - r as isize, height);
+                let line = &padded[source * stride + (j % side) * c..];
+                acc.iter_mut()
+                    .zip(line)
+                    .for_each(|(a, s)| *a += weight * f32::from(*s));
+            }
+            dst.iter_mut()
+                .zip(&acc)
+                .for_each(|(d, a)| *d = a.round().clamp(0.0, 255.0) as u8);
         }
-        out.extend(acc.iter().map(|a| a.round().clamp(0.0, 255.0) as u8));
-    }
+    });
     ImageBuffer::from_raw(w, h, out).expect("same length as the input buffer")
 }
 

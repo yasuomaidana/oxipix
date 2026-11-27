@@ -4,6 +4,7 @@
 //! (OpenCV's constant border). Matrices are the inverse (destination to source) maps, as `cv::warp*` takes
 //! them with `WARP_INVERSE_MAP`.
 
+use crate::imgproc::rows::for_each_band;
 use image::{ImageBuffer, Pixel};
 
 /// Bilinear sample of `image` at `(u, v)`, or `None` outside the picture.
@@ -35,7 +36,7 @@ fn sample(
 fn warp<P>(
     image: &ImageBuffer<P, Vec<u8>>,
     (ow, oh): (u32, u32),
-    map: impl Fn(f32, f32) -> (f32, f32),
+    map: impl Fn(f32, f32) -> (f32, f32) + Sync,
 ) -> ImageBuffer<P, Vec<u8>>
 where
     P: Pixel<Subpixel = u8>,
@@ -43,21 +44,22 @@ where
     let channels = usize::from(P::CHANNEL_COUNT);
     let size = (image.width() as usize, image.height() as usize);
     let mut out = vec![0u8; ow as usize * oh as usize * channels];
+    let row_len = (ow as usize * channels).max(1);
     if size.0 > 0 && size.1 > 0 {
-        for (y, row) in out
-            .chunks_exact_mut((ow as usize * channels).max(1))
-            .enumerate()
-        {
-            for (x, pixel) in row.chunks_exact_mut(channels).enumerate() {
-                sample(
-                    image.as_raw(),
-                    size,
-                    channels,
-                    map(x as f32, y as f32),
-                    pixel,
-                );
+        let raw = image.as_raw();
+        for_each_band(&mut out, row_len, |first, band| {
+            for (k, row) in band.chunks_exact_mut(row_len).enumerate() {
+                for (x, pixel) in row.chunks_exact_mut(channels).enumerate() {
+                    sample(
+                        raw,
+                        size,
+                        channels,
+                        map(x as f32, (first + k) as f32),
+                        pixel,
+                    );
+                }
             }
-        }
+        });
     }
     ImageBuffer::from_raw(ow, oh, out).expect("one value per channel and pixel")
 }

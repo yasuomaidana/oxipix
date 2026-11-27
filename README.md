@@ -109,6 +109,7 @@ top-hat, black-hat, gradient) and `imgproc::median::median_blur`, plus `blur`, `
 2.3 ms against 120 ms for `imageproc`, a 5 x 5 median over RGB takes 3.2 ms against 17 ms, and a 5 x 5 erosion of a
 303 x 384 mask takes 33 us against 89 us; a Gaussian blur of an RGB photograph takes 0.26 ms against 1.7 ms and
 Canny 1.1 ms against 4.9 ms (`cargo bench --bench imgproc_vs_imageproc`, Apple M-series, one thread).
+With the `parallel` feature the blur, pyrDown, median, bilateral, warp and `filter2d` kernels split large pictures into row bands on the rayon pool (about a quarter of a megapixel and up; smaller pictures stay on the calling thread because threads cost more than they save). Run inside `rayon::ThreadPoolBuilder::new().num_threads(n).build()?.install(|| ..)` to choose the thread count.
 The [rust-cv-guide performance queue](https://github.com/yasuomaidana/rust-cv-guide/blob/main/PERF_QUEUE.md) tracks
 the remaining gaps to OpenCV 5.1.0.
 

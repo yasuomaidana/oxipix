@@ -33,6 +33,7 @@ wgpu = { version = "30.0.1", optional = true }
 pollster = { version = "1.0.1", optional = true }
 realfft = { version = "3.5", optional = true }
 rustfft = { version = "6.4", optional = true }
+rayon = { version = "1.10", optional = true }
 
 [features]
 default = ["mosaic", "vectorize", "imgproc"]
@@ -44,6 +45,8 @@ mosaic = ["dep:oximedia-cv", "dep:thiserror"]
 vectorize = []
 # OpenCV-style image processing kernels on u8 images: morphology, median, template matching (FFT)
 imgproc = ["dep:realfft", "dep:rustfft"]
+# Run the imgproc kernels on the rayon pool when the picture is large enough (off by default)
+parallel = ["imgproc", "dep:rayon"]
 
 [dev-dependencies]
 criterion = "0.8.2"

@@ -1231,6 +1231,7 @@ dependencies = [
  "imageproc",
  "oximedia-cv",
  "pollster",
+ "rayon",
  "realfft",
  "rstest",
  "rustfft",
