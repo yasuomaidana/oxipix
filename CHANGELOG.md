@@ -17,6 +17,12 @@ All notable changes to this project are documented here. The format follows
   (only the kept rows are filtered), `gradient` (`sobel_x`, `sobel_y`, `laplacian` into `i16`, `scale_abs`,
   `normalize_abs`), `canny` (integer direction sectors, stack-based hysteresis), `bilateral::bilateral_filter`
   (spatial and colour weight tables, as OpenCV) and `filter2d::filter2d` (tap-ordered `f32` multiply-add).
+- `imgproc` wave 3: `arith` (`add_weighted`, `convert_scale`), `threshold` (histogram, Otsu, binary threshold, fused
+  HSV range test), `equalize::equalize_hist`, `quality` (`mse`, `psnr`, `ssim`), `warp` (affine and perspective with
+  bilinear sampling, `homography`), `features` (FAST-9 with wrap-around arcs, non-max suppression, BRIEF through an
+  integral image, Hamming matching), `hough` (standard line transform with OpenCV's peak rule, gradient-method
+  circles) and `distance` (exact Euclidean, city-block and chessboard transforms). The modules are grouped in
+  `filter`, `detect`, `geometry` and `color` and re-exported as `imgproc::<name>`.
 - Benchmark `imgproc_vs_imageproc` and the dependencies `realfft` and `rustfft` (only with `imgproc`).
 
 ## [0.1.0] - 2026-11-24

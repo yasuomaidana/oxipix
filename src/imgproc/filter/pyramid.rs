@@ -4,7 +4,7 @@
 //! sums five shifted copies of that row, and the result is divided by 256 once. Pixels outside the picture
 //! repeat the nearest edge pixel.
 
-use super::rows::{accumulate, clamp_row, pad_row};
+use crate::imgproc::rows::{accumulate, clamp_row, pad_row};
 use image::{ImageBuffer, Pixel};
 
 /// The binomial kernel `[1, 4, 6, 4, 1] / 16`, as integers.
