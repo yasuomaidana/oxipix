@@ -1,0 +1,252 @@
+//! Scratch benchmark: kornia-imgproc 0.2.0 and two safe-Rust spike kernels on the rust-cv-guide fixtures,
+//! timed with the same rule as comparisons/opencv/bench.cpp (3 warm-ups, >= iters samples and >= 200 ms,
+//! median), allocating the output on every call (compare with OpenCV `__fresh`).
+//! Usage: kbench <assets dir> <opencv json> ; thread count from RAYON_NUM_THREADS.
+
+mod spike;
+
+use kornia_image::{Image, ImageSize};
+use kornia_imgproc as kp;
+use std::hint::black_box;
+use std::time::Instant;
+
+fn bench_ms(iters: usize, mut f: impl FnMut()) -> (f64, f64) {
+    let mut first = 0.0f64;
+    for _ in 0..3 {
+        let t = Instant::now();
+        f();
+        first = first.max(t.elapsed().as_secs_f64() * 1e3);
+    }
+    let wanted = ((200.0 / first.max(1e-6)) as usize).clamp(iters, 5000);
+    let mut s: Vec<f64> = (0..wanted)
+        .map(|_| {
+            let t = Instant::now();
+            f();
+            t.elapsed().as_secs_f64() * 1e3
+        })
+        .collect();
+    s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let med = s[s.len() / 2];
+    let mut dev: Vec<f64> = s.iter().map(|v| (v - med).abs()).collect();
+    dev.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    (med, dev[dev.len() / 2])
+}
+
+fn mean(v: &[u8]) -> f64 {
+    v.iter().map(|&x| x as f64).sum::<f64>() / v.len().max(1) as f64
+}
+
+fn sz(w: usize, h: usize) -> ImageSize {
+    ImageSize { width: w, height: h }
+}
+
+fn rgb(path: &str) -> Image<u8, 3> {
+    let im = image::open(path).unwrap().to_rgb8();
+    let (w, h) = im.dimensions();
+    Image::new(sz(w as usize, h as usize), im.into_raw()).unwrap()
+}
+
+fn gray(path: &str) -> Image<u8, 1> {
+    let im = image::open(path).unwrap().to_luma8();
+    let (w, h) = im.dimensions();
+    Image::new(sz(w as usize, h as usize), im.into_raw()).unwrap()
+}
+
+fn otsu(img: &[u8]) -> u8 {
+    let mut hist = [0u64; 256];
+    for &v in img {
+        hist[v as usize] += 1;
+    }
+    let total = img.len() as f64;
+    let sum: f64 = (0..256).map(|i| i as f64 * hist[i] as f64).sum();
+    let (mut wb, mut sb, mut best, mut thr) = (0.0, 0.0, -1.0, 0u8);
+    for t in 0..256 {
+        wb += hist[t] as f64;
+        if wb == 0.0 {
+            continue;
+        }
+        let wf = total - wb;
+        if wf == 0.0 {
+            break;
+        }
+        sb += t as f64 * hist[t] as f64;
+        let (mb, mf) = (sb / wb, (sum - sb) / wf);
+        let between = wb * wf * (mb - mf) * (mb - mf);
+        if between > best {
+            best = between;
+            thr = t as u8;
+        }
+    }
+    thr
+}
+
+/// 3x3 perspective transform mapping `src` to `dst` (8x8 Gaussian elimination, as getPerspectiveTransform).
+fn perspective(src: [(f64, f64); 4], dst: [(f64, f64); 4]) -> [f32; 9] {
+    let mut a = [[0.0f64; 9]; 8];
+    for i in 0..4 {
+        let ((x, y), (u, v)) = (src[i], dst[i]);
+        a[i] = [x, y, 1.0, 0.0, 0.0, 0.0, -x * u, -y * u, u];
+        a[i + 4] = [0.0, 0.0, 0.0, x, y, 1.0, -x * v, -y * v, v];
+    }
+    for c in 0..8 {
+        let p = (c..8).max_by(|&i, &j| a[i][c].abs().partial_cmp(&a[j][c].abs()).unwrap()).unwrap();
+        a.swap(c, p);
+        for r in 0..8 {
+            if r != c {
+                let f = a[r][c] / a[c][c];
+                for k in c..9 {
+                    a[r][k] -= f * a[c][k];
+                }
+            }
+        }
+    }
+    let mut m = [0.0f32; 9];
+    for i in 0..8 {
+        m[i] = (a[i][8] / a[i][i]) as f32;
+    }
+    m[8] = 1.0;
+    m
+}
+
+struct Row {
+    id: &'static str,
+    who: &'static str,
+    ms: f64,
+    mad: f64,
+    mean: Option<f64>,
+}
+
+fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    let dir = &args[1];
+    let ocv: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&args[2]).unwrap()).unwrap();
+    let p = |n: &str| format!("{dir}/{n}");
+    let chelsea = rgb(&p("chelsea.png"));
+    let astronaut = rgb(&p("astronaut.png"));
+    let invoice_photo = rgb(&p("invoice_photo.png"));
+    let coins = gray(&p("coins.png"));
+    let building = gray(&p("building.jpg"));
+    let t = otsu(coins.as_slice());
+    let coins_mask = Image::<u8, 1>::new(
+        coins.size(),
+        coins.as_slice().iter().map(|&v| if v > t { 255 } else { 0 }).collect(),
+    )
+    .unwrap();
+    let invoice = gray(&p("invoice.png"));
+    let mut inv_s = Image::<u8, 1>::from_size_val(invoice.size(), 0).unwrap();
+    kp::filter::gaussian_blur_u8(&invoice, &mut inv_s, (5, 5), (0.8, 0.8)).unwrap();
+    let invoice_mask =
+        Image::<u8, 1>::new(invoice.size(), inv_s.as_slice().iter().map(|&v| if v > 128 { 0 } else { 255 }).collect())
+            .unwrap();
+
+    let mut rows: Vec<Row> = Vec::new();
+    macro_rules! run {
+        ($id:literal, $who:literal, $iters:expr, $body:expr) => {{
+            let f = || $body;
+            let out = f();
+            let mean = out.map(|v: Vec<u8>| mean(&v));
+            let (ms, mad) = bench_ms($iters, || {
+                black_box(f());
+            });
+            rows.push(Row { id: $id, who: $who, ms, mad, mean });
+        }};
+    }
+
+    run!("smoothing_box", "kornia", 30, {
+        let mut d = Image::<u8, 3>::from_size_val(chelsea.size(), 0).unwrap();
+        kp::filter::box_blur_u8(&chelsea, &mut d, (5, 5)).unwrap();
+        Some(d.as_slice().to_vec())
+    });
+    run!("smoothing_gaussian", "kornia", 30, {
+        let mut d = Image::<u8, 3>::from_size_val(chelsea.size(), 0).unwrap();
+        kp::filter::gaussian_blur_u8(&chelsea, &mut d, (5, 5), (1.1, 1.1)).unwrap();
+        Some(d.as_slice().to_vec())
+    });
+    run!("smoothing_gaussian", "spike", 30, {
+        Some(spike::gaussian5_u8(chelsea.as_slice(), 451, 300, 3, 1.1))
+    });
+    run!("smoothing_median", "kornia", 15, {
+        let mut d = Image::<u8, 3>::from_size_val(chelsea.size(), 0).unwrap();
+        kp::filter::median_blur(&chelsea, &mut d, 5).unwrap();
+        Some(d.as_slice().to_vec())
+    });
+    let k5 = kp::morphology::kernels::box_kernel(5);
+    run!("erosion", "kornia", 50, {
+        let mut d = Image::<u8, 1>::from_size_val(coins_mask.size(), 0).unwrap();
+        kp::morphology::erode(&coins_mask, &mut d, &k5, kp::padding::PaddingMode::Replicate, [0]).unwrap();
+        Some(d.as_slice().to_vec())
+    });
+    run!("erosion", "spike", 50, {
+        Some(spike::erode_rect_u8(coins_mask.as_slice(), coins_mask.width(), coins_mask.height(), 2))
+    });
+    run!("pyramids", "kornia", 30, {
+        let mut cur: Image<u8, 3> = chelsea.clone();
+        for _ in 0..3 {
+            let s = sz(cur.width().div_ceil(2), cur.height().div_ceil(2));
+            let mut d = Image::<u8, 3>::from_size_val(s, 0).unwrap();
+            kp::pyramid::pyrdown_u8(&cur, &mut d).unwrap();
+            cur = d;
+        }
+        Some(cur.as_slice().to_vec())
+    });
+    let rot = kp::warp::get_rotation_matrix2d(
+        (astronaut.width() as f32 / 2.0, astronaut.height() as f32 / 2.0),
+        -30.0,
+        0.6,
+    );
+    run!("warp_affine", "kornia", 30, {
+        let mut d = Image::<u8, 3>::from_size_val(astronaut.size(), 0).unwrap();
+        kp::warp::warp_affine_u8(&astronaut, &mut d, &rot).unwrap();
+        Some(d.as_slice().to_vec())
+    });
+    let h = perspective(
+        [(70.0, 40.0), (580.0, 70.0), (555.0, 430.0), (40.0, 400.0)],
+        [(0.0, 0.0), (640.0, 0.0), (640.0, 480.0), (0.0, 480.0)],
+    );
+    run!("homography", "kornia", 30, {
+        let mut d = Image::<u8, 3>::from_size_val(invoice_photo.size(), 0).unwrap();
+        kp::warp::warp_perspective_u8(&invoice_photo, &mut d, &h).unwrap();
+        Some(d.as_slice().to_vec())
+    });
+    run!("canny", "kornia", 30, {
+        let mut g = Image::<u8, 1>::from_size_val(building.size(), 0).unwrap();
+        kp::filter::gaussian_blur_u8(&building, &mut g, (9, 9), (1.4, 1.4)).unwrap();
+        let mut d = Image::<u8, 1>::from_size_val(building.size(), 0).unwrap();
+        kp::canny::canny(&g, &mut d, 50.0, 150.0, true).unwrap();
+        Some(d.as_slice().to_vec())
+    });
+    run!("equalize", "kornia", 50, {
+        let mut d = Image::<u8, 1>::from_size_val(building.size(), 0).unwrap();
+        kp::histogram::equalize_hist(&building, &mut d).unwrap();
+        Some(d.as_slice().to_vec())
+    });
+    run!("find_contours", "kornia", 20, {
+        let r = kp::contours::find_contours(
+            &invoice_mask,
+            kp::contours::RetrievalMode::List,
+            kp::contours::ContourApproximationMode::Simple,
+        )
+        .unwrap();
+        black_box(r);
+        None
+    });
+
+    let res = &ocv["results"];
+    let dig = &ocv["digests"];
+    println!("{:22} {:7} {:>9} {:>7} {:>9} {:>7} {:>10} {:>10}", "op", "backend", "ms", "mad", "opencv", "ratio", "mean", "ocv_mean");
+    for r in &rows {
+        let o = res[format!("{}__fresh", r.id)].as_f64().unwrap_or(f64::NAN);
+        let om = dig[r.id]["mean"].as_f64();
+        println!(
+            "{:22} {:7} {:9.4} {:7.4} {:9.4} {:7.2} {:>10} {:>10}",
+            r.id,
+            r.who,
+            r.ms,
+            r.mad,
+            o,
+            r.ms / o,
+            r.mean.map_or("-".into(), |m| format!("{m:.3}")),
+            om.map_or("-".into(), |m| format!("{m:.3}"))
+        );
+    }
+}

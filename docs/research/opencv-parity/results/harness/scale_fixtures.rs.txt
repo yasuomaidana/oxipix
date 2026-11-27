@@ -1,0 +1,24 @@
+//! Upscales every guide fixture to a target width (Lanczos3), keeping names and formats (JPEG at quality 95).
+use image::{ImageFormat, imageops::FilterType};
+fn main() {
+    let a: Vec<String> = std::env::args().collect();
+    let (src, dst, width): (&str, &str, u32) = (&a[1], &a[2], a[3].parse().unwrap());
+    std::fs::create_dir_all(dst).unwrap();
+    for e in std::fs::read_dir(src).unwrap() {
+        let p = e.unwrap().path();
+        let name = p.file_name().unwrap().to_string_lossy().to_string();
+        let Ok(fmt) = ImageFormat::from_path(&p) else { continue };
+        let im = image::open(&p).unwrap();
+        let h = (im.height() as u64 * width as u64 / im.width() as u64) as u32;
+        let out = im.resize_exact(width, h, FilterType::Lanczos3);
+        let out_path = format!("{dst}/{name}");
+        if fmt == ImageFormat::Jpeg {
+            let f = std::fs::File::create(&out_path).unwrap();
+            let enc = image::codecs::jpeg::JpegEncoder::new_with_quality(f, 95);
+            out.to_rgb8().write_with_encoder(enc).unwrap();
+        } else {
+            out.save(&out_path).unwrap();
+        }
+        println!("{name}: {}x{} -> {width}x{h}", im.width(), im.height());
+    }
+}

@@ -1,0 +1,13 @@
+op                     backend        ms     mad    opencv   ratio       mean   ocv_mean
+smoothing_box          kornia     2.4795  0.0881   17.2261    0.14    115.306    115.305
+smoothing_gaussian     kornia     2.4511  0.0702    3.5824    0.68    115.305    115.305
+smoothing_gaussian     spike     14.8636  0.0736    3.5824    4.15    115.305    115.305
+smoothing_median       kornia   613.1221 21.5732    5.2322  117.18    115.309    115.309
+erosion                kornia   135.2426  2.1085    0.9188  147.19     94.651     94.651
+erosion                spike      2.2847  0.0317    0.9188    2.49     94.651     94.651
+pyramids               kornia     6.2303  0.2774    0.9656    6.45    115.312    115.312
+warp_affine            kornia     5.4189  0.2401    3.5650    1.52     41.250     41.257
+homography             kornia    11.8106  0.1636    5.8851    2.01    193.833    193.839
+canny                  kornia     7.1280  0.1663    7.5701    0.94      0.733      0.719
+equalize               kornia     2.6400  0.1037    1.9290    1.37    127.955    127.979
+find_contours          kornia     1.4687  0.0353    1.0795    1.36          -          -
