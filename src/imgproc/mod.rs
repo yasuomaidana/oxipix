@@ -8,9 +8,17 @@
 #[path = "generated/median_networks.rs"]
 mod median_networks;
 
+pub mod bilateral;
+pub mod blur;
+pub mod canny;
+pub mod filter2d;
+pub mod gradient;
 pub mod median;
 pub mod morph;
+pub mod pyramid;
 pub mod template;
+
+mod rows;
 
 /// Deterministic pictures for the tests of every kernel.
 #[cfg(test)]

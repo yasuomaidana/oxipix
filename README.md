@@ -104,9 +104,11 @@ flowchart LR
 
 Fast 8-bit kernels written so the compiler can vectorise them, with the same results as `imageproc`:
 `imgproc::template::match_template` (FFT, all four `imageproc` scores), `imgproc::morph` (erode, dilate, open, close,
-top-hat, black-hat, gradient) and `imgproc::median::median_blur`. On a 451 x 300 photograph, a 40 x 40 template takes
+top-hat, black-hat, gradient) and `imgproc::median::median_blur`, plus `blur`, `pyramid`, `gradient` (Sobel, Laplacian), `canny`, `bilateral` and
+`filter2d`. On a 451 x 300 photograph, a 40 x 40 template takes
 2.3 ms against 120 ms for `imageproc`, a 5 x 5 median over RGB takes 3.2 ms against 17 ms, and a 5 x 5 erosion of a
-303 x 384 mask takes 33 us against 89 us (`cargo bench --bench imgproc_vs_imageproc`, Apple M-series, one thread).
+303 x 384 mask takes 33 us against 89 us; a Gaussian blur of an RGB photograph takes 0.26 ms against 1.7 ms and
+Canny 1.1 ms against 4.9 ms (`cargo bench --bench imgproc_vs_imageproc`, Apple M-series, one thread).
 The [rust-cv-guide performance queue](https://github.com/yasuomaidana/rust-cv-guide/blob/main/PERF_QUEUE.md) tracks
 the remaining gaps to OpenCV 5.1.0.
 

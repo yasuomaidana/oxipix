@@ -13,6 +13,10 @@ All notable changes to this project are documented here. The format follows
   `imageproc` scores), `imgproc::morph` (`erode`, `dilate`, `open`, `close`, `top_hat`, `black_hat`, `gradient` with a
   rectangular window in `O(log window)` whole-row passes) and `imgproc::median::median_blur` (selection network over
   16 pixels at a time for 3x3 and 5x5 windows, window selection for larger radii).
+- `imgproc` wave 2: `blur` (`box_blur`, `gaussian_blur`, integer separable passes in 16-bit lanes), `pyramid::pyr_down`
+  (only the kept rows are filtered), `gradient` (`sobel_x`, `sobel_y`, `laplacian` into `i16`, `scale_abs`,
+  `normalize_abs`), `canny` (integer direction sectors, stack-based hysteresis), `bilateral::bilateral_filter`
+  (spatial and colour weight tables, as OpenCV) and `filter2d::filter2d` (tap-ordered `f32` multiply-add).
 - Benchmark `imgproc_vs_imageproc` and the dependencies `realfft` and `rustfft` (only with `imgproc`).
 
 ## [0.1.0] - 2026-11-24
