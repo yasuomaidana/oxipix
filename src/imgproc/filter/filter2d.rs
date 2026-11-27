@@ -4,7 +4,7 @@
 //! `f32` accumulators, so the inner loop is a plain element-wise multiply-add that vectorises. Pixels outside
 //! the picture repeat the nearest edge pixel; results are rounded and saturated to 0..=255.
 
-use super::rows::{clamp_row, pad_row};
+use crate::imgproc::rows::{clamp_row, pad_row};
 use image::{ImageBuffer, Pixel};
 
 /// Correlates every channel with the `side x side` row-major `kernel` (`side` odd).

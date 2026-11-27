@@ -5,7 +5,7 @@
 //! Pixels outside the picture repeat the nearest edge pixel. Results differ from an exact floating-point
 //! blur by at most 1 level, because the intermediate image is rounded to 8 bits as well.
 
-use super::rows::{accumulate, clamp_row, pad_row};
+use crate::imgproc::rows::{accumulate, clamp_row, pad_row};
 use image::{ImageBuffer, Pixel};
 
 /// Largest radius whose weights still fit a 16-bit sum of 8-bit values.

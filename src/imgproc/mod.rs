@@ -3,22 +3,25 @@
 //! The functions work on whole rows of bytes (no per-pixel `Pixel` accessors, no bounds-checked
 //! neighbourhood lookups) and return the same results as the equivalent `imageproc` functions, which the
 //! tests check. See the `PERF_QUEUE.md` of the `rust-cv-guide` repository for the measured speed-ups.
+//!
+//! Modules are grouped by topic (`filter`, `detect`, `geometry`, `color`) and re-exported here, so every
+//! kernel is reachable as `oxipix::imgproc::<name>`.
 
 #[macro_use]
 #[path = "generated/median_networks.rs"]
 mod median_networks;
 
-pub mod bilateral;
-pub mod blur;
-pub mod canny;
-pub mod filter2d;
-pub mod gradient;
-pub mod median;
-pub mod morph;
-pub mod pyramid;
-pub mod template;
-
 mod rows;
+
+pub mod color;
+pub mod detect;
+pub mod filter;
+pub mod geometry;
+
+pub use color::{arith, equalize, quality, threshold};
+pub use detect::{canny, features, hough, template};
+pub use filter::{bilateral, blur, filter2d, gradient, median, morph, pyramid};
+pub use geometry::{distance, warp};
 
 /// Deterministic pictures for the tests of every kernel.
 #[cfg(test)]

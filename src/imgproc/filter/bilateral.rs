@@ -6,7 +6,7 @@
 //! table reads and a few multiply-adds instead of an `exp`. Pixels outside the picture repeat the nearest
 //! edge pixel.
 
-use super::rows::pad_row;
+use crate::imgproc::rows::pad_row;
 use image::{ImageBuffer, Pixel};
 
 /// A neighbour offset inside the window with its spatial weight.

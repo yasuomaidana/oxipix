@@ -3,7 +3,7 @@
 //! Every derivative is separable (or, for the Laplacian, a sum of shifted rows), so each pass is an
 //! element-wise `i16` add of shifted row slices. Pixels outside the picture repeat the nearest edge pixel.
 
-use super::rows::{clamp_row, pad_row};
+use crate::imgproc::rows::{clamp_row, pad_row};
 use image::{GrayImage, ImageBuffer, Luma};
 
 /// A signed derivative response.

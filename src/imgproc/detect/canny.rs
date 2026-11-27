@@ -6,8 +6,8 @@
 //! hysteresis grows the edges from the strong pixels with an explicit stack. Edge strength is
 //! `sqrt(gx^2 + gy^2)`, the definition `imageproc` uses (`cv::Canny` with `L2gradient = true`).
 
-use super::blur::gaussian_blur;
-use super::gradient::{Response, sobel_x, sobel_y};
+use crate::imgproc::blur::gaussian_blur;
+use crate::imgproc::gradient::{Response, sobel_x, sobel_y};
 use image::GrayImage;
 
 /// `tan(22.5 deg)` and `tan(67.5 deg)` times 2^15.
