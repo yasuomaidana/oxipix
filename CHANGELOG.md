@@ -28,6 +28,7 @@ All notable changes to this project are documented here. The format follows
   the rayon pool, but only for at least about a quarter of a megapixel of output, so small pictures stay on the calling
   thread. Results are identical with and without the feature (tests force both paths). The thread count is the
   caller's rayon pool (`ThreadPoolBuilder::install`).
+- Example `gpu_vs_threads`: the `gpu` 3x3 filter and perspective warp against the `imgproc` kernels on one and on all threads at small, medium and big pictures. On the reference machine the all-thread CPU kernels beat the GPU on the filter at every size, and the GPU beats the threaded CPU warp by about 1.3x at 2 and 8 megapixels.
 - Benchmark `imgproc_vs_imageproc` and the dependencies `realfft` and `rustfft` (only with `imgproc`).
 
 ## [0.1.0] - 2026-11-24
