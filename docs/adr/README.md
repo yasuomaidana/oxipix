@@ -22,3 +22,4 @@ Template:
 | [0001](0001-single-crate-on-top-of-image.md) | One crate on top of `image`, with upstream-first CPU work | Accepted |
 | [0002](0002-docs-as-an-unpublished-package.md) | Documentation lives in an unpublished package | Accepted |
 | [0003](0003-opencv-comparison-in-its-own-workspace.md) | The `opencv` comparison lives in its own workspace | Accepted |
+| [0005](0005-opencv-parity-scope.md) | OpenCV-class kernels in oxipix, delegation for the rest of OpenCV | Proposed |

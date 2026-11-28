@@ -1,0 +1,96 @@
+//! Feasibility spike: safe, portable Rust written so LLVM auto-vectorises it (no intrinsics, no unsafe).
+//! These are the shapes a kernel macro would generate; they stand in for the "can Rust match KleidiCV" question.
+
+/// Rectangular erosion of radius `r` (window 2r+1), separable min. Pixels outside the image are ignored,
+/// which is OpenCV's default for erode (border value = +inf).
+pub fn erode_rect_u8(src: &[u8], w: usize, h: usize, r: usize) -> Vec<u8> {
+    let mut tmp = vec![0u8; w * h];
+    for (srow, trow) in src.chunks_exact(w).zip(tmp.chunks_exact_mut(w)) {
+        row_min(srow, trow, r);
+    }
+    let mut dst = vec![0u8; w * h];
+    for y in 0..h {
+        let (y0, y1) = (y.saturating_sub(r), (y + r).min(h - 1));
+        let out = &mut dst[y * w..(y + 1) * w];
+        out.copy_from_slice(&tmp[y0 * w..(y0 + 1) * w]);
+        for yy in y0 + 1..=y1 {
+            for (o, &v) in out.iter_mut().zip(&tmp[yy * w..(yy + 1) * w]) {
+                *o = (*o).min(v);
+            }
+        }
+    }
+    dst
+}
+
+fn row_min(src: &[u8], dst: &mut [u8], r: usize) {
+    let w = src.len();
+    for x in 0..r.min(w) {
+        dst[x] = *src[..=(x + r).min(w - 1)].iter().min().unwrap();
+    }
+    if w > 2 * r {
+        let n = w - 2 * r;
+        let out = &mut dst[r..r + n];
+        out.copy_from_slice(&src[..n]);
+        for k in 1..=2 * r {
+            for (o, &v) in out.iter_mut().zip(&src[k..k + n]) {
+                *o = (*o).min(v);
+            }
+        }
+    }
+    for x in w.saturating_sub(r).max(r)..w {
+        dst[x] = *src[x.saturating_sub(r)..].iter().min().unwrap();
+    }
+}
+
+/// 5x5 Gaussian, interleaved `c` channels, BORDER_REFLECT_101, 8-bit fixed-point weights (sum 256) per pass,
+/// like OpenCV's bit-exact u8 path.
+pub fn gaussian5_u8(src: &[u8], w: usize, h: usize, c: usize, sigma: f64) -> Vec<u8> {
+    let g: Vec<f64> = (-2i32..=2).map(|i| (-(i * i) as f64 / (2.0 * sigma * sigma)).exp()).collect();
+    let s: f64 = g.iter().sum();
+    let mut k = [0u16; 5];
+    for i in 0..5 {
+        k[i] = (g[i] / s * 256.0).round() as u16;
+    }
+    k[2] = 256 - (k[0] + k[1] + k[3] + k[4]);
+    let stride = w * c;
+    let refl = |i: isize, n: isize| -> usize {
+        let i = if i < 0 { -i } else { i };
+        (if i >= n { 2 * (n - 1) - i } else { i }) as usize
+    };
+    // Horizontal: u8 -> u16 (value * 256).
+    let mut tmp = vec![0u16; w * h * c];
+    let mut pad = vec![0u8; (w + 4) * c];
+    for y in 0..h {
+        let row = &src[y * stride..(y + 1) * stride];
+        for x in 0..w + 4 {
+            let sx = refl(x as isize - 2, w as isize);
+            pad[x * c..(x + 1) * c].copy_from_slice(&row[sx * c..(sx + 1) * c]);
+        }
+        let out = &mut tmp[y * stride..(y + 1) * stride];
+        for (i, o) in out.iter_mut().enumerate() {
+            *o = k[0] * pad[i] as u16
+                + k[1] * pad[i + c] as u16
+                + k[2] * pad[i + 2 * c] as u16
+                + k[3] * pad[i + 3 * c] as u16
+                + k[4] * pad[i + 4 * c] as u16;
+        }
+    }
+    // Vertical: u16 -> u32 (value * 65536), round, back to u8.
+    let mut dst = vec![0u8; w * h * c];
+    for y in 0..h {
+        let r: [&[u16]; 5] = core::array::from_fn(|j| {
+            let yy = refl(y as isize + j as isize - 2, h as isize);
+            &tmp[yy * stride..(yy + 1) * stride]
+        });
+        let out = &mut dst[y * stride..(y + 1) * stride];
+        for i in 0..stride {
+            let acc = k[0] as u32 * r[0][i] as u32
+                + k[1] as u32 * r[1][i] as u32
+                + k[2] as u32 * r[2][i] as u32
+                + k[3] as u32 * r[3][i] as u32
+                + k[4] as u32 * r[4][i] as u32;
+            out[i] = ((acc + (1 << 15)) >> 16) as u8;
+        }
+    }
+    dst
+}

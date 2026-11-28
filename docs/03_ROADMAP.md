@@ -37,6 +37,7 @@ quality gates, 100% coverage, documentation and packaging described in [`02_QUAL
 | RM-DOCS (OXI-83) | high | OpenCV-style documentation site | Plan: [`plans/OPENCV_STYLE_DOCS_PLAN.md`](plans/OPENCV_STYLE_DOCS_PLAN.md). |
 | RM-BENCH (OXI-84) | high | Performance comparison against the `opencv` crate | Part of the same plan; kept out of the published crate's dependency graph. |
 | RM-SPLIT | low | Split into `oxipix-gpu`, `oxipix-mosaic` and `oxipix-vectorize` | Only if justified, as a separate pull request. |
+| RM-PARITY (OXI-99) | high | OpenCV-class kernels: scope, architecture and phases | Research and proposed [ADR-0005](adr/0005-opencv-parity-scope.md): [`research/opencv-parity/`](research/opencv-parity/00_SUMMARY.md). If accepted, RM-SPLIT becomes its phase 1. |
 | RM-OTSU | low | Replace `vectorize::otsu_threshold` with `imageproc::contrast::otsu_level` | Only after parity is verified; the two use different conventions (`<=` versus `<`). |
 
 ## 4. Planned feature: `layout`

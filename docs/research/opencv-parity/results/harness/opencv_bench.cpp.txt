@@ -1,0 +1,336 @@
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <iostream>
+#include <opencv2/opencv.hpp>
+#include <opencv2/features.hpp>
+#include <opencv2/xfeatures2d.hpp>
+#include <string>
+#include <utility>
+#include <vector>
+
+using Clock = std::chrono::steady_clock;
+
+template <class Fn>
+double time_once(Fn& fn) {
+    auto t0 = Clock::now();
+    fn();
+    auto t1 = Clock::now();
+    return std::chrono::duration<double, std::milli>(t1 - t0).count();
+}
+
+// Same rule as the Rust side: at least `iters` samples and at least 200 ms in total, capped at 5000.
+template <class Fn>
+double bench_ms(int warmup, int iters, Fn fn) {
+    double first = 0.0;
+    for (int i = 0; i < warmup; ++i) first = std::max(first, time_once(fn));
+    int wanted = std::clamp(static_cast<int>(200.0 / std::max(first, 1e-6)), iters, 5000);
+    std::vector<double> samples;
+    samples.reserve(static_cast<size_t>(wanted));
+    for (int i = 0; i < wanted; ++i) samples.push_back(time_once(fn));
+    std::sort(samples.begin(), samples.end());
+    return samples[samples.size() / 2];
+}
+
+struct Row {
+    std::string id;
+    double ms;
+};
+
+struct Digest {
+    std::string id;
+    int w, h;
+    double mean;
+};
+
+static std::string json_escape(const std::string& in) {
+    std::string out;
+    for (char c : in) {
+        if (c == '"' || c == '\\') out += '\\';
+        out += c;
+    }
+    return out;
+}
+
+// HAL, SIMD and threading lines from cv::getBuildInformation(), recorded next to the timings.
+static std::vector<std::string> build_lines() {
+    static const char* keys[] = {"Parallel framework", "Custom HAL", "Baseline", "Dispatched code", "Intel IPP", "C++ flags (Release)", "Link-Time Optimization"};
+    std::vector<std::string> out;
+    std::string info = cv::getBuildInformation();
+    size_t start = 0;
+    while (start < info.size()) {
+        size_t end = info.find('\n', start);
+        if (end == std::string::npos) end = info.size();
+        std::string line = info.substr(start, end - start);
+        for (const char* key : keys) {
+            if (line.find(key) != std::string::npos) {
+                size_t first = line.find_first_not_of(' ');
+                out.push_back(line.substr(first == std::string::npos ? 0 : first));
+                break;
+            }
+        }
+        start = end + 1;
+    }
+    return out;
+}
+
+static cv::Mat asset(const std::string& dir, const std::string& name, int flags) {
+    cv::Mat m = cv::imread(dir + "/" + name, flags);
+    if (m.empty()) {
+        std::cerr << "Failed to load " << name << "\n";
+        std::exit(1);
+    }
+    return m;
+}
+
+static double opencv_psnr(const cv::Mat& a, const cv::Mat& b) {
+    cv::Mat s1;
+    cv::absdiff(a, b, s1);
+    s1.convertTo(s1, CV_32F);
+    s1 = s1.mul(s1);
+    cv::Scalar s = cv::sum(s1);
+    double sse = s[0] + s[1] + s[2];
+    if (sse <= 1e-10) return 100.0;
+    double mse = sse / static_cast<double>(a.channels() * a.total());
+    return 10.0 * std::log10((255.0 * 255.0) / mse);
+}
+
+static double opencv_ssim(const cv::Mat& i1, const cv::Mat& i2) {
+    const double C1 = 6.5025, C2 = 58.5225;
+    cv::Mat I1, I2;
+    i1.convertTo(I1, CV_32F);
+    i2.convertTo(I2, CV_32F);
+    cv::Mat I1_2 = I1.mul(I1), I2_2 = I2.mul(I2), I1_I2 = I1.mul(I2);
+    cv::Mat mu1, mu2;
+    cv::GaussianBlur(I1, mu1, cv::Size(11, 11), 1.5);
+    cv::GaussianBlur(I2, mu2, cv::Size(11, 11), 1.5);
+    cv::Mat mu1_2 = mu1.mul(mu1), mu2_2 = mu2.mul(mu2), mu1_mu2 = mu1.mul(mu2);
+    cv::Mat sigma1_2, sigma2_2, sigma12;
+    cv::GaussianBlur(I1_2, sigma1_2, cv::Size(11, 11), 1.5); sigma1_2 -= mu1_2;
+    cv::GaussianBlur(I2_2, sigma2_2, cv::Size(11, 11), 1.5); sigma2_2 -= mu2_2;
+    cv::GaussianBlur(I1_I2, sigma12, cv::Size(11, 11), 1.5); sigma12 -= mu1_mu2;
+    cv::Mat t1 = 2 * mu1_mu2 + C1, t2 = 2 * sigma12 + C2;
+    cv::Mat t3 = t1.mul(t2);
+    t1 = mu1_2 + mu2_2 + C1;
+    t2 = sigma1_2 + sigma2_2 + C2;
+    t1 = t1.mul(t2);
+    cv::Mat ssim_map;
+    cv::divide(t3, t1, ssim_map);
+    return cv::mean(ssim_map)[0];
+}
+
+struct Assets {
+    cv::Mat linux_logo, win_logo, coffee, chelsea, chelsea_gray, coins, building, astronaut;
+    cv::Mat invoice_photo;
+    cv::Mat coins_mask, invoice_mask, building_blur, chelsea_blur, tmpl, building_shift;
+};
+
+static Assets load_assets(const std::string& dir) {
+    Assets a;
+    a.linux_logo = asset(dir, "LinuxLogo.jpg", cv::IMREAD_COLOR);
+    a.win_logo = asset(dir, "WindowsLogo.jpg", cv::IMREAD_COLOR);
+    a.coffee = asset(dir, "coffee.png", cv::IMREAD_COLOR);
+    a.chelsea = asset(dir, "chelsea.png", cv::IMREAD_COLOR);
+    a.chelsea_gray = asset(dir, "chelsea.png", cv::IMREAD_GRAYSCALE);
+    a.coins = asset(dir, "coins.png", cv::IMREAD_GRAYSCALE);
+    a.building = asset(dir, "building.jpg", cv::IMREAD_GRAYSCALE);
+    a.astronaut = asset(dir, "astronaut.png", cv::IMREAD_COLOR);
+    a.invoice_photo = asset(dir, "invoice_photo.png", cv::IMREAD_COLOR);
+
+    cv::threshold(a.coins, a.coins_mask, 0, 255, cv::THRESH_BINARY | cv::THRESH_OTSU);
+    cv::Mat invoice = asset(dir, "invoice.png", cv::IMREAD_GRAYSCALE), invoice_smooth;
+    cv::GaussianBlur(invoice, invoice_smooth, cv::Size(5, 5), 0.8);
+    cv::threshold(invoice_smooth, a.invoice_mask, 128, 255, cv::THRESH_BINARY_INV);
+    cv::GaussianBlur(a.building, a.building_blur, cv::Size(0, 0), 2.0);
+    // The second view of the feature-matching benchmark: the photo cropped by (12, 7), as in the tutorials.
+    a.building_shift = a.building(cv::Rect(12, 7, a.building.cols - 12, a.building.rows - 7)).clone();
+    cv::GaussianBlur(a.chelsea_gray, a.chelsea_blur, cv::Size(0, 0), 1.5);
+    a.chelsea_blur += 25;
+    cv::Rect patch((a.chelsea_gray.cols - 40) / 2, a.chelsea_gray.rows * 2 / 5 - 20, 40, 40);
+    a.tmpl = a.chelsea_gray(patch).clone();
+    return a;
+}
+
+// Collects timings and digests. `dst` is the shared output `Mat` the benchmark lambdas write into.
+struct Bench {
+    std::vector<Row> rows;
+    std::vector<Digest> digests;
+    cv::Mat dst;
+
+    // Replaces the image digest with an element count, for ops whose result is a list rather than `dst`.
+    // `kind` 1 is an element count; 2 is the number of matches that agree with the true shift.
+    void set_count_digest(const char* id, size_t count, int kind = 1) {
+        digests.erase(std::remove_if(digests.begin(), digests.end(), [&](const Digest& d) { return d.id == id; }), digests.end());
+        digests.push_back({id, static_cast<int>(count), kind, 0.0});
+    }
+
+    void record_image_digest(const char* id) {
+        if (dst.empty() || dst.depth() != CV_8U) return;
+        cv::Scalar m = cv::mean(dst);
+        double sum = 0.0;
+        for (int c = 0; c < dst.channels(); ++c) sum += m[c];
+        digests.push_back({id, dst.cols, dst.rows, sum / dst.channels()});
+    }
+
+    // Times each op twice: reusing `dst` (the OpenCV idiom) and releasing it first so every call
+    // allocates its output like the Rust snippets do. The last fresh run also yields the digest.
+    template <class Fn>
+    void push(const char* id, int iters, Fn fn) {
+        rows.push_back({id, bench_ms(3, iters, fn)});
+        auto fresh = [&] { dst.release(); fn(); };
+        rows.push_back({std::string(id) + "__fresh", bench_ms(3, iters, fresh)});
+        dst.release();
+        fn();
+        record_image_digest(id);
+    }
+};
+
+static void run_core_and_smoothing(Bench& b, const Assets& a) {
+    cv::Mat& dst = b.dst;
+    b.push("adding_images", 50, [&] { cv::addWeighted(a.linux_logo, 0.5, a.win_logo, 0.5, 0.0, dst); });
+    b.push("basic_linear_transform", 50, [&] { a.coffee.convertTo(dst, -1, 1.3, 40.0); });
+    b.push("smoothing_box", 30, [&] { cv::blur(a.chelsea, dst, cv::Size(5, 5)); });
+    b.push("smoothing_gaussian", 30, [&] { cv::GaussianBlur(a.chelsea, dst, cv::Size(5, 5), 1.1); });
+    b.push("smoothing_median", 15, [&] { cv::medianBlur(a.chelsea, dst, 5); });
+    b.push("smoothing_bilateral", 10, [&] { cv::bilateralFilter(a.chelsea, dst, 5, 30.0, 30.0); });
+    cv::Mat box_k = cv::Mat::ones(5, 5, CV_32F) / 25.0f;
+    b.push("filter_2d", 30, [&] { cv::filter2D(a.chelsea, dst, -1, box_k); });
+    b.push("equalize", 50, [&] { cv::equalizeHist(a.building, dst); });
+    b.push("threshold", 50, [&] { cv::threshold(a.coins, dst, 0, 255, cv::THRESH_BINARY | cv::THRESH_OTSU); });
+    b.push("threshold_inRange", 30, [&] {
+        cv::Mat hsv, m1, m2;
+        cv::cvtColor(a.win_logo, hsv, cv::COLOR_BGR2HSV_FULL);
+        cv::inRange(hsv, cv::Scalar(244, 128, 102), cv::Scalar(255, 255, 255), m1);
+        cv::inRange(hsv, cv::Scalar(0, 128, 102), cv::Scalar(11, 255, 255), m2);
+        cv::bitwise_or(m1, m2, dst);
+    });
+}
+
+static void run_morphology_and_edges(Bench& b, const Assets& a) {
+    cv::Mat& dst = b.dst;
+    cv::Mat k5 = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(5, 5));
+    cv::Mat k7 = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(7, 7));
+    b.push("erosion", 50, [&] { cv::erode(a.coins_mask, dst, k5); });
+    b.push("opening_closing_hats", 30, [&] { cv::morphologyEx(a.coins, dst, cv::MORPH_TOPHAT, k7); });
+    b.push("distance_transform", 30, [&] { cv::distanceTransform(a.coins_mask, dst, cv::DIST_L2, 3); });
+    b.push("canny", 30, [&] { cv::GaussianBlur(a.building, dst, cv::Size(0, 0), 1.4); cv::Canny(dst, dst, 50.0, 150.0, 3, true); });
+    b.push("laplace", 30, [&] {
+        cv::Mat g, l;
+        cv::GaussianBlur(a.building, g, cv::Size(0, 0), 1.0);
+        cv::Laplacian(g, l, CV_16S, 3);
+        // The tutorial scales the response so the strongest edge is 255 (as the Rust versions do).
+        l = cv::abs(l);
+        double strongest = 1.0;
+        cv::minMaxLoc(l, nullptr, &strongest);
+        l.convertTo(dst, CV_8U, 255.0 / std::max(strongest, 1.0));
+    });
+    b.push("sobel", 30, [&] {
+        cv::Mat gx;
+        cv::Sobel(a.building, gx, CV_16S, 1, 0, 3);
+        cv::convertScaleAbs(gx, dst);
+    });
+    b.push("find_contours", 20, [&] {
+        std::vector<std::vector<cv::Point>> contours;
+        cv::findContours(a.invoice_mask.clone(), contours, cv::RETR_LIST, cv::CHAIN_APPROX_SIMPLE);
+        std::vector<cv::Point> poly;
+        for (const auto& c : contours) cv::approxPolyDP(c, poly, 2.0, true);
+    });
+    std::vector<cv::Vec3f> circles;
+    b.push("hough_circle", 15, [&] { cv::HoughCircles(a.coins, circles, cv::HOUGH_GRADIENT, 1.0, 20.0, 150.0, 25.0, 15, 40); });
+    std::vector<cv::Vec2f> lines;
+    b.push("hough_lines", 20, [&] { cv::GaussianBlur(a.building, dst, cv::Size(0, 0), 1.4); cv::Canny(dst, dst, 50.0, 150.0, 3, true); cv::HoughLines(dst, lines, 1.0, CV_PI / 180.0, 150); });
+    b.set_count_digest("hough_lines", lines.size());
+}
+
+static void run_geometry(Bench& b, const Assets& a) {
+    cv::Mat& dst = b.dst;
+    cv::Mat rot = cv::getRotationMatrix2D(cv::Point2f(a.astronaut.cols / 2.0f, a.astronaut.rows / 2.0f), -30.0, 0.6);
+    b.push("warp_affine", 30, [&] { cv::warpAffine(a.astronaut, dst, rot, a.astronaut.size(), cv::INTER_LINEAR); });
+    b.push("pyramids", 30, [&] {
+        cv::Mat p1, p2, p3;
+        cv::pyrDown(a.chelsea, p1);
+        cv::pyrDown(p1, p2);
+        cv::pyrDown(p2, p3);
+        dst = p3;
+    });
+    b.push("template_matching", 20, [&] { cv::matchTemplate(a.chelsea_blur, a.tmpl, dst, cv::TM_SQDIFF); });
+    std::vector<cv::Point2f> src_pts = {{70.0f, 40.0f}, {580.0f, 70.0f}, {555.0f, 430.0f}, {40.0f, 400.0f}};
+    std::vector<cv::Point2f> dst_pts = {{0.0f, 0.0f}, {640.0f, 0.0f}, {640.0f, 480.0f}, {0.0f, 480.0f}};
+    b.push("homography", 30, [&] {
+        cv::Mat m = cv::getPerspectiveTransform(src_pts, dst_pts);
+        cv::warpPerspective(a.invoice_photo, dst, m, a.invoice_photo.size(), cv::INTER_LINEAR);
+    });
+}
+
+static void run_features(Bench& b, const Assets& a) {
+    auto fast = cv::FastFeatureDetector::create(30, true);
+    std::vector<cv::KeyPoint> kps;
+    b.push("feature_detection_fast", 30, [&] { kps.clear(); fast->detect(a.building, kps); });
+    b.set_count_digest("feature_detection_fast", kps.size());
+    auto orb = cv::ORB::create(250);
+    cv::Mat desc;
+    b.push("feature_detection_orb", 20, [&] { kps.clear(); orb->detectAndCompute(a.building, cv::noArray(), kps, desc); });
+    b.set_count_digest("feature_detection_orb", kps.size());
+    // FAST (non-max suppression on) + 256-bit BRIEF + Hamming matching: the pipeline every Rust backend runs.
+    auto fast20 = cv::FastFeatureDetector::create(20, true);
+    auto brief = cv::xfeatures2d::BriefDescriptorExtractor::create(32);
+    size_t good = 0;
+    b.push("feature_description", 10, [&] {
+        std::vector<cv::KeyPoint> ka, kb;
+        cv::Mat da, db;
+        fast20->detect(a.building, ka);
+        fast20->detect(a.building_shift, kb);
+        cv::KeyPointsFilter::retainBest(ka, 250);
+        cv::KeyPointsFilter::retainBest(kb, 250);
+        brief->compute(a.building, ka, da);
+        brief->compute(a.building_shift, kb, db);
+        std::vector<cv::DMatch> matches;
+        if (!da.empty() && !db.empty()) cv::BFMatcher(cv::NORM_HAMMING).match(da, db, matches);
+        // Inliers: matches within 32 bits whose displacement is the true (12, 7) shift, within 2 px.
+        good = static_cast<size_t>(std::count_if(matches.begin(), matches.end(), [&](const cv::DMatch& m) {
+            cv::Point2f d = ka[m.queryIdx].pt - kb[m.trainIdx].pt;
+            return m.distance <= 32 && std::abs(d.x - 12.0f) <= 2.0f && std::abs(d.y - 7.0f) <= 2.0f;
+        }));
+    });
+    b.set_count_digest("feature_description", good, 2);
+}
+
+static void run_quality(Bench& b, const Assets& a) {
+    volatile double sink = 0.0;
+    b.push("psnr", 50, [&] { sink = opencv_psnr(a.building, a.building_blur); });
+    b.push("ssim", 20, [&] { sink = opencv_ssim(a.building, a.building_blur); });
+    (void)sink;
+}
+
+static void print_json(const Bench& b) {
+    std::cout << "{\n  \"opencv_version\": \"" << CV_VERSION << "\",\n  \"build_info\": [";
+    std::vector<std::string> info = build_lines();
+    for (size_t i = 0; i < info.size(); ++i) {
+        std::cout << (i ? ", " : "") << "\"" << json_escape(info[i]) << "\"";
+    }
+    std::cout << "],\n  \"digests\": {\n";
+    for (size_t i = 0; i < b.digests.size(); ++i) {
+        const Digest& d = b.digests[i];
+        std::cout << "    \"" << d.id << "\": {\"w\": " << d.w << ", \"h\": " << d.h << ", \"mean\": " << d.mean << "}"
+                  << (i + 1 < b.digests.size() ? "," : "") << "\n";
+    }
+    std::cout << "  },\n  \"results\": {\n";
+    for (size_t i = 0; i < b.rows.size(); ++i) {
+        std::cout << "    \"" << b.rows[i].id << "\": " << b.rows[i].ms << (i + 1 < b.rows.size() ? "," : "") << "\n";
+    }
+    std::cout << "  }\n}\n";
+}
+
+int main(int argc, char** argv) {
+    std::string dir = argc > 1 ? argv[1] : "../../snippets/assets";
+    cv::setNumThreads(getenv("OCV_THREADS") ? atoi(getenv("OCV_THREADS")) : 1);
+    Assets a = load_assets(dir);
+    Bench b;
+    run_core_and_smoothing(b, a);
+    run_morphology_and_edges(b, a);
+    run_geometry(b, a);
+    run_features(b, a);
+    run_quality(b, a);
+    print_json(b);
+    return 0;
+}

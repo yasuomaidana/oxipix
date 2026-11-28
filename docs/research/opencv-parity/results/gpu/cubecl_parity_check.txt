@@ -1,0 +1,14 @@
+== gspike-wgsl
+adapter(oxipix wgpu): Apple M3
+cubecl runtime: "wgpu<wgsl-metal>"
+1920x1080: cpu 28.237 ms | oxipix-wgsl roundtrip 3.331 ms | cubecl resident 0.756 ms, roundtrip 2.714 ms
+  parity vs cpu: wgsl exact=true (>1 diffs 0), cubecl exact=true (>1 diffs 0)
+3840x2160: cpu 112.076 ms | oxipix-wgsl roundtrip 19.294 ms | cubecl resident 1.976 ms, roundtrip 10.659 ms
+  parity vs cpu: wgsl exact=true (>1 diffs 0), cubecl exact=true (>1 diffs 0)
+== gspike-msl
+adapter(oxipix wgpu): Apple M3
+cubecl runtime: "wgpu<msl>"
+1920x1080: cpu 27.903 ms | oxipix-wgsl roundtrip 3.750 ms | cubecl resident 0.636 ms, roundtrip 2.724 ms
+  parity vs cpu: wgsl exact=true (>1 diffs 0), cubecl exact=true (>1 diffs 0)
+3840x2160: cpu 112.213 ms | oxipix-wgsl roundtrip 17.837 ms | cubecl resident 1.249 ms, roundtrip 10.348 ms
+  parity vs cpu: wgsl exact=true (>1 diffs 0), cubecl exact=true (>1 diffs 0)

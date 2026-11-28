@@ -1,0 +1,33 @@
+error[E0277]: `Rc<Cell<u32>>` cannot be shared between threads safely
+    --> src/gpu/context.rs:43:16
+     |
+  43 | static GLOBAL: OnceLock<Option<GpuContext>> = OnceLock::new();
+     |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Rc<Cell<u32>>` cannot be shared between threads safely
+     |
+     = help: within `Option<GpuContext>`, the trait `Sync` is not implemented for `Rc<Cell<u32>>`
+note: required because it appears within the type `wgpu::backend::webgpu::WebDevice`
+    --> ~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/wgpu-30.0.1/src/backend/webgpu.rs:1269:12
+     |
+1269 | pub struct WebDevice {
+     |            ^^^^^^^^^
+note: required because it appears within the type `wgpu::dispatch::DispatchDevice`
+    --> ~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/wgpu-30.0.1/src/dispatch.rs:1000:27
+     |
+--
+error[E0277]: `Rc<Cell<u32>>` cannot be sent between threads safely
+    --> src/gpu/context.rs:43:16
+     |
+  43 | static GLOBAL: OnceLock<Option<GpuContext>> = OnceLock::new();
+     |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Rc<Cell<u32>>` cannot be sent between threads safely
+     |
+     = help: within `Option<GpuContext>`, the trait `Send` is not implemented for `Rc<Cell<u32>>`
+note: required because it appears within the type `wgpu::backend::webgpu::WebDevice`
+    --> ~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/wgpu-30.0.1/src/backend/webgpu.rs:1269:12
+     |
+1269 | pub struct WebDevice {
+     |            ^^^^^^^^^
+note: required because it appears within the type `wgpu::dispatch::DispatchDevice`
+    --> ~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/wgpu-30.0.1/src/dispatch.rs:1000:27
+     |
+--
+error: could not compile `oxipix` (lib) due to 2 previous errors

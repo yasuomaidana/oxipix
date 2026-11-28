@@ -1,0 +1,2 @@
+1920x1080 RGB: host copy 0.091 ms | upload 1.664 ms | upload+download+wrap 1.877 ms | lossless=true
+3840x2160 RGB: host copy 0.555 ms | upload 5.155 ms | upload+download+wrap 6.408 ms | lossless=true

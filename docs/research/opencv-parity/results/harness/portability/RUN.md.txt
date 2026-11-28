@@ -1,0 +1,19 @@
+Run commands (Apple M3, rustc 1.100, Node 26.13; release profiles as in manifests.toml.txt)
+
+wbench (CPU, native vs wasm; 3 warm-ups, >=10 samples and >=300 ms, median + MAD):
+  RAYON_NUM_THREADS=1 ./target/release/wbench-native > native_t1.txt
+  cargo build --release --lib --target wasm32-unknown-unknown --target-dir target-scalar
+  RUSTFLAGS="-C target-feature=+simd128" cargo build --release --lib --target wasm32-unknown-unknown --target-dir target-simd
+  wasm-bindgen --target nodejs --out-dir pkg-<v> target-<v>/wasm32-unknown-unknown/release/wbench.wasm
+  node run.mjs ./pkg-scalar > wasm_scalar.txt ; node run.mjs ./pkg-simd > wasm_simd.txt
+  (warp: kornia receives the inverse of ROT, since it takes the forward map; checksums then agree to 0.0004%)
+
+GPU (3 warm-ups, >=10 samples and >=400 ms, median; burn: >=5 samples):
+  cargo build --release --bin gspike                  -> cubecl runtime "wgpu<wgsl-metal>"  (copied to gspike-wgsl)
+  cargo build --release --features metal --bin gspike -> cubecl runtime "wgpu<msl>"         (copied to gspike-msl)
+  cargo build --release --bin wgsl_resident           -> oxipix CONVOLUTION_2D_WGSL, buffers + bind group created once
+  interleaved: for i in 1..4: gspike-wgsl; gspike-msl; wgsl_resident   -> interleaved_4rounds.txt
+  Load average during the interleaved runs: ~50 (shared machine); treat GPU numbers as +-20%.
+  The cubecl kernel unpacks RGB per tap and alpha once; the WGSL shader unpacks RGBA per tap (same output bytes).
+  cubecl's 3x3 weights buffer is uploaded once outside the timed loop; the shipped oxipix path re-uploads uniforms.
+  bspike: burn path dep, features std,vision,wgpu,fusion; Device::default() -> wgpu.
