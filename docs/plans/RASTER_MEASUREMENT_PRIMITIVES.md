@@ -1,13 +1,13 @@
 # Planned feature: raster measurement primitives
 
 Three small measurements on images, built on kernels the library already has (thresholds, morphology, the exact
-Euclidean distance transform). They answer questions a caller asks before sending an image to an output device: how thin
-is the thinnest stroke, how much of each channel is used, and what physical density does the file claim. No tickets
-exist yet; this is the requirement and its acceptance criteria.
+Euclidean distance transform). They answer questions a caller asks before sending an image to an output device: which
+parts are thinner than a given width, how much of each channel is used, and what physical density does the file claim.
+No tickets exist yet; this is the requirement and its acceptance criteria.
 
 ## 1. Gaps
 
-1. The distance transform exists, but nothing reports the local width of a region or the place where it is smallest.
+1. The distance transform exists, but nothing reports which parts of a region are thinner than a given width, or the place where a region is thinnest. Morphology with a disc-shaped element is not available; it can be built from the exact distance transform.
 2. Nothing reports per-channel usage of an image, with or without a mask.
 3. The physical pixel density some formats record is neither read nor written.
 
@@ -15,25 +15,33 @@ exist yet; this is the requirement and its acceptance criteria.
 
 | ID | Priority | Requirement |
 |---|---|---|
-| `MEAS-1` | high | Smallest local width of foreground regions, and of background gaps, in a binary image, with the location of each minimum |
+| `MEAS-1` | high | Regions of a binary image thinner than a given width, found by morphological opening with a disc, for the foreground and for background gaps within a band around it; with the smallest width found and its location |
 | `MEAS-2` | high | Per-channel coverage of an image over the whole frame or a mask |
 | `MEAS-3` | low | Read and write the physical pixel density recorded in an image file |
 
 ## 3. Specifications
 
-**MEAS-1: minimum feature width.**
-Request: `min_width(mask, options) -> WidthReport`. The input is a binary image. The local width at a ridge point of the
-distance transform is twice its distance value. The report gives the smallest width over all ridge points of the
-foreground, the same for the background (gaps between foreground regions), the pixel location of each, and a histogram
-of widths. Options: ignore regions smaller than an area, ignore ridge points closer than a margin to the frame, and
-report the first K minima. Widths are in pixels; converting to a physical length is the caller's business.
+**MEAS-1: regions thinner than a width.**
+Request: `thin_regions(mask, width, options) -> ThinReport`. The input is a binary image and a width `t` in pixels.
+
+1. **Foreground.** The thin foreground is the mask minus its morphological opening by a disc of diameter `t`: the pixels that no disc of that size, lying wholly inside the mask, covers.
+2. **Background gaps.** The same on the complement of the mask, restricted to a band of pixels within `2t` of the mask. The band leaves the open background around the shapes out, and includes gaps open on one side.
+3. **Corners.** Opening also rounds off convex corners. A residue pixel counts only if its distance to the opened set is more than `t / 4` plus one pixel. The rounded-off tip of a corner of 90 degrees or more is at most (√2 − 1) × `t` / 2 deep, so such corners are not reported; a sharper tip is.
+4. **Regions.** A thin region is a connected part of the residue that contains at least one counting pixel. For each region the report gives its area in pixels, a bounding box, and its width `2d − 1`, where `d` is the largest value of the exact distance transform of the mask (or of the complement) inside the region, measured between pixel centres.
+5. **Smallest width.** The report gives the smallest region width for the foreground and for the background, with the pixel location of each.
+
+Options: ignore regions smaller than an area; ignore pixels closer than a margin to the frame; report the first K regions by width. The discrete form of the disc is fixed with the first implementation so that the criteria below hold. Widths are in pixels; converting to a physical length is the caller's business.
 
 Acceptance criteria:
 
-- A horizontal bar N pixels high reports a foreground width of N for N from 1 to 64.
-- Two bars separated by a gap of G pixels report a background width of G.
-- A disc of diameter D reports D within one pixel.
+- An axis-aligned bar W pixels wide is reported thin exactly when W is below `t`, within one pixel, for W from 1 to 64 and `t` from 2 to 40; its reported width is within one pixel of W.
+- The same holds for a bar at 45 degrees.
+- Two bars separated by a gap of G pixels report a background region exactly when G is below `t`, within one pixel, with a width within one pixel of G. The same holds when the gap is open at one end.
+- A filled square larger than `t` reports no thin region, at its corners or elsewhere.
+- A triangle with a 30-degree corner reports one thin region at that corner.
+- A disc of diameter D larger than `t` reports nothing; a disc of diameter D smaller than `t` reports one region of width D within one pixel.
 - A region below the area option does not appear in the report.
+- Background far from the mask (outside the `2t` band) is never reported.
 - Equal inputs produce identical outputs across runs and platforms.
 - A 4,000 by 4,000 image completes within the benchmark budget recorded with the first implementation.
 
