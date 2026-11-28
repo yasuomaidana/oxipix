@@ -1,0 +1,96 @@
+== wgsl_control round 1
+1920x1080: wgsl resident 1.098 ms (mad 0.186) | wgsl pooled roundtrip 2.709 ms (mad 0.161) | exact=true
+3840x2160: wgsl resident 2.832 ms (mad 0.109) | wgsl pooled roundtrip 9.858 ms (mad 0.503) | exact=true
+== wgsl_lean round 1
+1920x1080: wgsl resident 0.931 ms (mad 0.033) | wgsl pooled roundtrip 2.591 ms (mad 0.127) | exact=true
+3840x2160: wgsl resident 2.758 ms (mad 0.091) | wgsl pooled roundtrip 10.025 ms (mad 0.451) | exact=true
+== gspike-wgsl round 1
+1920x1080: cpu 28.333 ms | oxipix-wgsl roundtrip 4.112 ms | cubecl resident 0.770 ms, roundtrip 2.877 ms
+3840x2160: cpu 111.752 ms | oxipix-wgsl roundtrip 16.393 ms | cubecl resident 1.915 ms, roundtrip 10.518 ms
+== gspike-msl round 1
+1920x1080: cpu 27.916 ms | oxipix-wgsl roundtrip 4.114 ms | cubecl resident 0.649 ms, roundtrip 2.836 ms
+3840x2160: cpu 115.678 ms | oxipix-wgsl roundtrip 17.284 ms | cubecl resident 1.303 ms, roundtrip 10.370 ms
+== wgsl_control round 2
+1920x1080: wgsl resident 0.928 ms (mad 0.034) | wgsl pooled roundtrip 2.782 ms (mad 0.204) | exact=true
+3840x2160: wgsl resident 2.791 ms (mad 0.075) | wgsl pooled roundtrip 10.012 ms (mad 0.508) | exact=true
+== wgsl_lean round 2
+1920x1080: wgsl resident 0.921 ms (mad 0.035) | wgsl pooled roundtrip 2.705 ms (mad 0.149) | exact=true
+3840x2160: wgsl resident 2.785 ms (mad 0.108) | wgsl pooled roundtrip 9.651 ms (mad 0.307) | exact=true
+== gspike-wgsl round 2
+1920x1080: cpu 27.842 ms | oxipix-wgsl roundtrip 4.040 ms | cubecl resident 0.814 ms, roundtrip 3.122 ms
+3840x2160: cpu 112.906 ms | oxipix-wgsl roundtrip 20.259 ms | cubecl resident 2.089 ms, roundtrip 11.327 ms
+== gspike-msl round 2
+1920x1080: cpu 27.545 ms | oxipix-wgsl roundtrip 5.150 ms | cubecl resident 0.548 ms, roundtrip 3.245 ms
+3840x2160: cpu 115.161 ms | oxipix-wgsl roundtrip 17.771 ms | cubecl resident 1.327 ms, roundtrip 10.031 ms
+== wgsl_control round 3
+1920x1080: wgsl resident 0.957 ms (mad 0.047) | wgsl pooled roundtrip 2.790 ms (mad 0.248) | exact=true
+3840x2160: wgsl resident 2.780 ms (mad 0.064) | wgsl pooled roundtrip 9.190 ms (mad 0.332) | exact=true
+== wgsl_lean round 3
+1920x1080: wgsl resident 0.934 ms (mad 0.039) | wgsl pooled roundtrip 5.488 ms (mad 1.119) | exact=true
+3840x2160: wgsl resident 2.726 ms (mad 0.059) | wgsl pooled roundtrip 10.610 ms (mad 1.081) | exact=true
+== gspike-wgsl round 3
+1920x1080: cpu 27.971 ms | oxipix-wgsl roundtrip 4.215 ms | cubecl resident 0.694 ms, roundtrip 3.084 ms
+3840x2160: cpu 112.142 ms | oxipix-wgsl roundtrip 22.438 ms | cubecl resident 1.888 ms, roundtrip 10.781 ms
+== gspike-msl round 3
+1920x1080: cpu 27.782 ms | oxipix-wgsl roundtrip 3.890 ms | cubecl resident 0.643 ms, roundtrip 3.033 ms
+3840x2160: cpu 115.485 ms | oxipix-wgsl roundtrip 16.268 ms | cubecl resident 1.306 ms, roundtrip 9.235 ms
+== wgsl_control round 4
+1920x1080: wgsl resident 0.934 ms (mad 0.026) | wgsl pooled roundtrip 2.569 ms (mad 0.092) | exact=true
+3840x2160: wgsl resident 2.763 ms (mad 0.025) | wgsl pooled roundtrip 9.244 ms (mad 0.440) | exact=true
+== wgsl_lean round 4
+1920x1080: wgsl resident 0.933 ms (mad 0.041) | wgsl pooled roundtrip 2.493 ms (mad 0.072) | exact=true
+3840x2160: wgsl resident 2.716 ms (mad 0.030) | wgsl pooled roundtrip 9.011 ms (mad 0.373) | exact=true
+== gspike-wgsl round 4
+1920x1080: cpu 27.400 ms | oxipix-wgsl roundtrip 3.753 ms | cubecl resident 0.792 ms, roundtrip 2.850 ms
+3840x2160: cpu 118.912 ms | oxipix-wgsl roundtrip 17.995 ms | cubecl resident 2.111 ms, roundtrip 10.945 ms
+== gspike-msl round 4
+1920x1080: cpu 28.537 ms | oxipix-wgsl roundtrip 4.179 ms | cubecl resident 0.631 ms, roundtrip 2.935 ms
+3840x2160: cpu 111.010 ms | oxipix-wgsl roundtrip 16.565 ms | cubecl resident 1.214 ms, roundtrip 9.535 ms
+== wgsl_control round 5
+1920x1080: wgsl resident 0.947 ms (mad 0.026) | wgsl pooled roundtrip 2.604 ms (mad 0.077) | exact=true
+3840x2160: wgsl resident 2.760 ms (mad 0.030) | wgsl pooled roundtrip 8.869 ms (mad 0.229) | exact=true
+== wgsl_lean round 5
+1920x1080: wgsl resident 0.936 ms (mad 0.017) | wgsl pooled roundtrip 2.533 ms (mad 0.073) | exact=true
+3840x2160: wgsl resident 2.715 ms (mad 0.030) | wgsl pooled roundtrip 9.020 ms (mad 0.345) | exact=true
+== gspike-wgsl round 5
+1920x1080: cpu 27.578 ms | oxipix-wgsl roundtrip 3.892 ms | cubecl resident 0.950 ms, roundtrip 5.764 ms
+3840x2160: cpu 130.058 ms | oxipix-wgsl roundtrip 17.199 ms | cubecl resident 2.139 ms, roundtrip 15.981 ms
+== gspike-msl round 5
+1920x1080: cpu 33.662 ms | oxipix-wgsl roundtrip 4.560 ms | cubecl resident 0.774 ms, roundtrip 2.739 ms
+3840x2160: cpu 114.079 ms | oxipix-wgsl roundtrip 18.769 ms | cubecl resident 1.729 ms, roundtrip 10.556 ms
+== wgsl_control round 6
+1920x1080: wgsl resident 0.930 ms (mad 0.022) | wgsl pooled roundtrip 2.534 ms (mad 0.081) | exact=true
+3840x2160: wgsl resident 2.773 ms (mad 0.045) | wgsl pooled roundtrip 9.977 ms (mad 0.600) | exact=true
+== wgsl_lean round 6
+1920x1080: wgsl resident 0.968 ms (mad 0.090) | wgsl pooled roundtrip 2.879 ms (mad 0.292) | exact=true
+3840x2160: wgsl resident 3.003 ms (mad 0.253) | wgsl pooled roundtrip 9.923 ms (mad 0.789) | exact=true
+== gspike-wgsl round 6
+1920x1080: cpu 28.985 ms | oxipix-wgsl roundtrip 3.634 ms | cubecl resident 0.791 ms, roundtrip 3.179 ms
+3840x2160: cpu 140.679 ms | oxipix-wgsl roundtrip 15.850 ms | cubecl resident 1.871 ms, roundtrip 9.662 ms
+== gspike-msl round 6
+1920x1080: cpu 27.408 ms | oxipix-wgsl roundtrip 3.529 ms | cubecl resident 0.623 ms, roundtrip 2.780 ms
+3840x2160: cpu 121.941 ms | oxipix-wgsl roundtrip 20.261 ms | cubecl resident 1.266 ms, roundtrip 10.165 ms
+== wgsl_control round 7
+1920x1080: wgsl resident 0.907 ms (mad 0.026) | wgsl pooled roundtrip 2.653 ms (mad 0.135) | exact=true
+3840x2160: wgsl resident 2.901 ms (mad 0.154) | wgsl pooled roundtrip 9.230 ms (mad 0.393) | exact=true
+== wgsl_lean round 7
+1920x1080: wgsl resident 0.906 ms (mad 0.034) | wgsl pooled roundtrip 3.199 ms (mad 0.766) | exact=true
+3840x2160: wgsl resident 2.755 ms (mad 0.082) | wgsl pooled roundtrip 9.688 ms (mad 0.401) | exact=true
+== gspike-wgsl round 7
+1920x1080: cpu 27.922 ms | oxipix-wgsl roundtrip 3.849 ms | cubecl resident 0.808 ms, roundtrip 3.089 ms
+3840x2160: cpu 113.558 ms | oxipix-wgsl roundtrip 17.571 ms | cubecl resident 1.871 ms, roundtrip 9.655 ms
+== gspike-msl round 7
+1920x1080: cpu 27.830 ms | oxipix-wgsl roundtrip 3.484 ms | cubecl resident 0.638 ms, roundtrip 2.509 ms
+3840x2160: cpu 110.793 ms | oxipix-wgsl roundtrip 15.954 ms | cubecl resident 1.236 ms, roundtrip 9.073 ms
+== wgsl_control round 8
+1920x1080: wgsl resident 0.941 ms (mad 0.016) | wgsl pooled roundtrip 2.450 ms (mad 0.052) | exact=true
+3840x2160: wgsl resident 2.757 ms (mad 0.033) | wgsl pooled roundtrip 8.452 ms (mad 0.134) | exact=true
+== wgsl_lean round 8
+1920x1080: wgsl resident 0.936 ms (mad 0.012) | wgsl pooled roundtrip 2.463 ms (mad 0.057) | exact=true
+3840x2160: wgsl resident 2.701 ms (mad 0.022) | wgsl pooled roundtrip 8.692 ms (mad 0.294) | exact=true
+== gspike-wgsl round 8
+1920x1080: cpu 27.539 ms | oxipix-wgsl roundtrip 3.377 ms | cubecl resident 0.701 ms, roundtrip 2.664 ms
+3840x2160: cpu 110.148 ms | oxipix-wgsl roundtrip 15.009 ms | cubecl resident 1.864 ms, roundtrip 9.758 ms
+== gspike-msl round 8
+1920x1080: cpu 30.785 ms | oxipix-wgsl roundtrip 4.007 ms | cubecl resident 0.667 ms, roundtrip 2.901 ms
+3840x2160: cpu 110.410 ms | oxipix-wgsl roundtrip 15.384 ms | cubecl resident 1.193 ms, roundtrip 9.083 ms

@@ -74,9 +74,9 @@ Elsewhere a mature crate exists, or the OpenCV module is itself a wrapper (codec
 |---|---|---|---|---|
 | Licence | MIT OR Apache-2.0 | Apache-2.0 | MIT | Apache-2.0 |
 | Threads optional | **yes** (`parallel` feature, PR #8) | **no** (rayon is a hard dependency; ops parallelise internally) | yes (`rayon` feature) | n/a |
-| GPU | wgpu (opt-in, 2 kernels) | CUDA only (`cudarc`, PTX) | – | – |
-| `wasm32-unknown-unknown` build | `imgproc`, `vectorize`, `mosaic`: **build** (checked). `gpu`: **fails**, because `GpuContext::global()` keeps the context in a `OnceLock` that needs `Send + Sync`, and wgpu's WebGPU types hold `Rc<Cell<_>>`. No CI job yet. | **fails**: `kornia-algebra` → `rand 0.10` → `getrandom 0.4` without a wasm backend | **builds** (checked) | not tried |
-| SIMD style | Safe slices written so the compiler auto-vectorises | `wide` and explicit NEON (`simd` module) | generic scalar | `oximedia-simd` |
+| GPU | wgpu (opt-in, 2 kernels) | CUDA only (`cudarc`, NVRTC, and cuda-oxide PTX). CubeCL was added and then removed in #990 ([06](06_PORTABILITY_AND_GPU_BACKENDS.md) §1) | – | – |
+| `wasm32-unknown-unknown` build | `imgproc`, `vectorize`, `mosaic`: **build** (checked). `gpu`: **fails**, because `GpuContext::global()` keeps the context in a `OnceLock` that needs `Send + Sync`, and wgpu's WebGPU types hold `Rc<Cell<_>>`. It builds with wgpu's `fragile-send-sync-non-atomic-wasm`, but is not yet runnable (blocking `new`; [06](06_PORTABILITY_AND_GPU_BACKENDS.md) §3). No CI job yet. | **fails** unpatched: `kornia-algebra` → `rand 0.10` → `getrandom 0.4` without a wasm backend. **Builds** with a 3-line patch, and runs serially and correctly ([06](06_PORTABILITY_AND_GPU_BACKENDS.md) §2) | **builds** (checked) | not tried |
+| SIMD style | Safe slices written so the compiler auto-vectorises (carries over to wasm `simd128`) | explicit NEON (36 files in `kornia-imgproc`) and x86 SSE/AVX2 (20 files), `wide` in 1 file; no wasm SIMD | generic scalar | `oximedia-simd` |
 | OpenCV parity intent | per-op tests against reference shapes | stated "byte-for-byte with cv2" on several ops, with OpenCV fixture scripts | own semantics | own semantics |
 | Activity (last 90 days) | owner-driven | at least 100 merged PRs, 49 open | 15 merged PRs, 14 open | not measured |
 | MSRV | 1.89 | 1.89 | n/a | 1.87 (really 1.89) |

@@ -1,0 +1,85 @@
+# wbench
+[package]
+name = "wbench"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "wbench-native"
+path = "src/main.rs"
+
+[dependencies]
+kornia-imgproc = { path = "<scratch>/refs/kornia-rs/crates/kornia-imgproc" }
+kornia-image = { path = "<scratch>/refs/kornia-rs/crates/kornia-image" }
+oxipix = { path = "<oxipix>", default-features = false, features = ["imgproc"] }
+image = { version = "0.25", default-features = false }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "=0.2.130"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
+# gspike (cubecl + oxipix WGSL control + kornia adapter)
+[package]
+name = "gspike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+cubecl = { path = "<scratch>/refs/cubecl/crates/cubecl", default-features = false, features = ["wgpu", "std"] }
+oxipix = { path = "<oxipix>", default-features = false, features = ["gpu"] }
+pollster = "0.4"
+wgpu = "30.0.1"
+bytemuck = "1"
+
+[features]
+metal = ["cubecl/wgpu-msl"]
+
+[profile.release]
+lto = "thin"
+
+[dependencies.kornia-image]
+path = "<scratch>/refs/kornia-rs/crates/kornia-image"
+
+[[bin]]
+name = "adapter"
+path = "src/adapter.rs"
+
+[[bin]]
+name = "wgsl_resident"
+path = "src/wgsl_resident.rs"
+
+# gspike-wasm
+[package]
+name = "gspike-wasm"
+version = "0.0.0"
+edition = "2024"
+publish = false
+[lib]
+crate-type = ["cdylib"]
+[dependencies]
+cubecl = { path = "<scratch>/refs/cubecl/crates/cubecl", default-features = false, features = ["wgpu", "std"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.4", features = ["wasm_js"] }
+
+# bspike (burn-vision)
+[package]
+name = "bspike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+[dependencies]
+burn = { path = "<scratch>/refs/burn/crates/burn", default-features = false, features = ["std", "vision", "wgpu", "fusion"] }
+[profile.release]
+lto = "thin"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.4", features = ["wasm_js"] }

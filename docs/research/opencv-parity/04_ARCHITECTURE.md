@@ -252,8 +252,9 @@ impl GpuImage {                                                           // res
 ```
 
 - `GpuImageExt` keeps its synchronous signatures on native targets only (`#[cfg(not(target_arch = "wasm32"))]`). Today's
-  `GpuContext::global()` stays on native. On wasm, `set_global` uses a `thread_local!`, or wgpu's
-  `fragile-send-sync-non-atomic-wasm` feature.
+  `GpuContext::global()` stays on native. On wasm, `set_global` uses a `thread_local!` ([06](06_PORTABILITY_AND_GPU_BACKENDS.md) §5.2(a)).
+  wgpu's `fragile-send-sync-non-atomic-wasm` feature is an interim build fix at most, because it rules out a later
+  atomics build.
 - Storage layout: packed `u32` storage buffers. RGBA uses one u32 per pixel. Gray packs four pixels per u32, with rows
   padded to 4 pixels. RGB is unpacked to RGBA on upload; that cost is measured and reported.
 - Buffers and bind groups come from per-context pools instead of being created on every call (`gpu/context.rs:169-218`).
@@ -265,7 +266,7 @@ impl GpuImage {                                                           // res
 A `GpuPipeline` (operations recorded into one command buffer, with one upload and one readback) and further WGSL twins
 are added only after OXI-98 measures that upload and readback dominate at medium and large sizes. If they are built,
 the operation trait lives in `gpu`, and `imgproc` implements it for its operations (no dependency cycle). cubecl
-(`#[cube]` Rust kernels compiled to wgpu) is a watch item, not a planned step.
+(`#[cube]` Rust kernels compiled to wgpu) is a watch item, not a planned step. [06](06_PORTABILITY_AND_GPU_BACKENDS.md) §5.2 measures it against pooled WGSL, and defines an evaluation protocol that runs only when a trigger fires.
 
 ## 8. No runtime backend switch
 
@@ -273,7 +274,7 @@ The first draft had a "light HAL" that could quietly route an operation to korni
 removed:
 - Cargo feature unification would let any crate in the dependency tree change oxipix's numeric output.
 - kornia pulls in rayon, which breaks G2.
-- kornia does not build for wasm.
+- kornia does not build for wasm without a patch (3 lines, [06](06_PORTABILITY_AND_GPU_BACKENDS.md) §2), and has no wasm SIMD paths.
 - "Faster" was measured on one machine.
 
 The path is chosen by the caller's type, as today: `GpuImage`/`GpuImageExt` against `ImageBuffer`. Callers who want
@@ -313,10 +314,10 @@ The `dendrite retro` command lines are part of the `docs/rea/README.md` process 
 | Aspect | OpenCV 5.1 | KleidiCV | kornia-rs | This proposal |
 |---|---|---|---|---|
 | Container | `Mat`/`UMat` (type-erased) | raw pointer and stride | `Image<T, C>` (owned, contiguous) | `image::ImageBuffer` (owned), plus `View`/`ViewMut` (strided, ROI) |
-| ISA variants | universal intrinsics plus `*.simd.hpp` | per-ISA files from shared templates | `wide`, NEON | one auto-vectorised safe body; `wide` body where measured; `multiversion` for x86 |
+| ISA variants | universal intrinsics plus `*.simd.hpp` | per-ISA files from shared templates | explicit NEON and x86 SSE/AVX2, `wide` in one file; no wasm SIMD | one auto-vectorised safe body; `wide` body where measured; `multiversion` for x86 |
 | Parallel | `parallel_for_` | `kleidicv_thread` stripes | rayon inside each op, always on | opt-in `parallel`; row_local, map_reduce and whole shapes; per-op `min_work` |
 | GPU | OpenCL T-API; CUDA in contrib | – | CUDA | wgpu, resident `GpuImage`, async readback; pipelines when measured |
-| wasm | opencv.js (Emscripten) | – | build fails | first-class target, checked in CI |
+| wasm | opencv.js (Emscripten) | – | fails unpatched; builds with a 3-line patch; no wasm SIMD | first-class target, checked in CI |
 | Backend choice | HAL hooks at run time | is a HAL | – | the caller's type; no runtime switch |
 | Repetition control | C++ templates and macros | shared templates | generics | `macro_rules!` helpers; `#[kernel]` if the prototype passes the gates |
 | Parity evidence | its own test data | conformity suite | OpenCV fixture scripts | golden outputs from a pinned OpenCV build, plus a performance gate on three sizes |

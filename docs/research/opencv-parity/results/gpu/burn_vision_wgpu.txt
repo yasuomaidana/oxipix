@@ -1,0 +1,2 @@
+1920x1080: filter2d3x3 resident 4.473 ms, roundtrip 2.083 ms | median5 RGB resident 1617.210 ms | erode5x5 gray resident 3.090 ms
+3840x2160: filter2d3x3 resident 17.539 ms, roundtrip 13.288 ms | median5 RGB resident 12584.028 ms | erode5x5 gray resident 8.903 ms

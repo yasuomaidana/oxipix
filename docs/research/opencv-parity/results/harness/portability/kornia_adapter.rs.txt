@@ -1,0 +1,28 @@
+//! A2 adapter cost: kornia Image<u8,3> -> device handle -> back to a kornia Image, no kernel.
+//! Compares with a host-only copy of the same bytes (the floor for any adapter).
+use kornia_image::{Image, ImageSize};
+use std::time::Instant;
+fn bench(mut f: impl FnMut()) -> f64 {
+    for _ in 0..3 { f(); }
+    let mut t = Vec::new(); let st = Instant::now();
+    while t.len() < 10 || st.elapsed().as_millis() < 400 { let s = Instant::now(); f(); t.push(s.elapsed().as_secs_f64() * 1e3); }
+    t.sort_by(|a, b| a.partial_cmp(b).unwrap()); t[t.len() / 2]
+}
+fn main() {
+    let client = cubecl::Device::default().client();
+    for (w, h) in [(1920usize, 1080usize), (3840, 2160)] {
+        let size = ImageSize { width: w, height: h };
+        let img = Image::<u8, 3>::new(size, (0..w * h * 3).map(|i| (i * 7) as u8).collect()).unwrap();
+        let host = bench(|| { std::hint::black_box(Image::<u8, 3>::new(size, img.as_slice().to_vec()).unwrap()); });
+        let up = bench(|| { let hd = client.create_from_slice(img.as_slice()); std::hint::black_box(hd); pollster::block_on(client.sync()).unwrap(); });
+        let rt = bench(|| {
+            let hd = client.create_from_slice(img.as_slice());
+            let bytes = client.read_one(hd).unwrap();
+            let back = Image::<u8, 3>::new(size, bytes.to_vec()).unwrap();
+            std::hint::black_box(back);
+        });
+        let hd = client.create_from_slice(img.as_slice());
+        let ok = client.read_one(hd).unwrap().to_vec() == img.as_slice();
+        println!("{w}x{h} RGB: host copy {host:.3} ms | upload {up:.3} ms | upload+download+wrap {rt:.3} ms | lossless={ok}");
+    }
+}

@@ -8,8 +8,8 @@
 | R2 | Similar or better speed than OpenCV (with KleidiCV) | kornia-rs: yes on separable filters, Canny and `warpAffine`; no on 3-channel median and morphology (100x or more), fixable with PRs. imageproc: no, its API is the obstacle. oximedia-cv: no. |
 | R3 | Opt-in sub-crates, minimal default builds | kornia-rs is split into crates, but `kornia-imgproc` pulls in `kornia-algebra`, `rand` and rayon unconditionally. Changing that is a design change for them. |
 | R4 | Native multithreading, but optional | kornia-rs: always on (rayon inside each op). imageproc: optional, but only a few ops use it. |
-| R5 | wgpu GPU | No crate has it. kornia-rs uses CUDA (`cudarc`, PTX) and has no plan for wgpu that this study found. |
-| R6 | WebAssembly | imageproc builds. kornia-rs fails (`getrandom`). A PR fixes that, but rayon on wasm still needs `wasm-bindgen-rayon` or a serial path. |
+| R5 | wgpu GPU | No crate has it. kornia-rs uses CUDA (`cudarc`, PTX) and has no approved wgpu plan: #1135 lists an untriaged "Vulkan/wgpu backend scope" RFC, and kornia removed CubeCL in #990 ([06](06_PORTABILITY_AND_GPU_BACKENDS.md) §1). |
+| R6 | WebAssembly | imageproc builds. kornia-rs fails (`getrandom`), but a measured 3-line patch fixes it, and rayon then runs serially ([06](06_PORTABILITY_AND_GPU_BACKENDS.md) §2). kornia has no wasm SIMD paths, so its box and Gaussian run 16x to 17x slower in wasm. |
 | R7 | Macros to remove repeated kernel code | Internal to each crate. Nothing to request upstream. |
 
 **R5 and R6 rule out a pure "send PRs upstream" path**, and R3 and R4 make it unlikely. wgpu has been the one unique
@@ -43,8 +43,9 @@ thin optional crate translating to a mature crate, with no new algorithms.
 |---|---|---|---|
 | kornia-rs | NEON median for 3 channels (deinterleave, then run the existing single-channel network) | perf PR | 102x down to about 1x for kornia users; makes kornia a viable dependency for 3-channel median |
 | kornia-rs | Separable fast path for erode/dilate with rectangular kernels | perf PR | 681x |
-| kornia-rs | `wasm32` build: `getrandom` with the `wasm_js` backend, or `rand` optional in `kornia-algebra` | build fix | R6 |
-| kornia-rs | `parallel` feature (rayon optional, serial fallback) | design discussion (issue first) | R4; also unblocks wasm without threads |
+| kornia-rs | `wasm32` build: target-specific `getrandom` with `wasm_js` in `kornia-algebra` (patch and PR text: [06](06_PORTABILITY_AND_GPU_BACKENDS.md) A.1) | build fix | R6 |
+| kornia-rs | `parallel` feature (rayon optional, serial fallback) | design discussion (issue first, 06 A.2) | R4, for embedders. Not needed for wasm: rayon already runs serially there |
+| kornia-rs | Is a non-CUDA backend in scope? (one-line question on #1135, 06 A.3) | question | R5. kornia removed CubeCL in #990, and its GPU work targets cuda-oxide (NVIDIA only) |
 | oximedia-cv | FAST-9 ring wrap, `register_ecc` near-zero drift, nested `ContourFinder` rings | bug reports | Correctness of the existing `mosaic` dependency |
 | imageproc | None for performance; possibly correctness fixes found by the conformance suite | – | API limits |
 | rust-cv-guide | Add kornia-rs and oxipix `imgproc` as backends; set `DIST_MASK_PRECISE` on the OpenCV distance probe; record circle counts | harness changes (separate repo and ticket) | PERF_QUEUE is out of date: its 75x and 41x rows are now 1.26x and 7.45x |
@@ -54,7 +55,9 @@ oxipix prepares branches and benchmarks only.
 
 ## 4. When to revisit this decision
 
-- If kornia-rs accepts a `parallel` feature and a wasm build, and shows interest in wgpu, move the oxipix imgproc
+- If a cubecl trigger fires (a consumer needs CUDA or ROCm, or resident throughput at 4K or more, or oxipix reaches 8 GPU kernels with WGSL upkeep as the bottleneck), run the evaluation protocol in [06](06_PORTABILITY_AND_GPU_BACKENDS.md) §5.2(d). Adopt cubecl for a kernel family only if it passes.
+- If kornia-rs accepts a `parallel` feature and a wasm build, its `wasm32 +simd128` build passes the 1.5x gate (04 §9)
+  for the operations in question, and it shows interest in wgpu, move the oxipix imgproc
   kernels upstream to kornia and keep oxipix as the wgpu and document-capture layer.
 - If any oxipix kernel cannot get within 1.5x of OpenCV after an explicit-SIMD variant, depend on kornia for that
   operation instead of maintaining a slower copy.

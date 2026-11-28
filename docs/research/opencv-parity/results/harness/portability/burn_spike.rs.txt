@@ -1,0 +1,26 @@
+//! burn-vision on burn-wgpu: filter2d 3x3, median 5x5 (RGB, f32 NCHW) and erode 5x5 (gray, NHWC), data resident.
+use burn::tensor::{Device, Tensor, TensorData};
+use burn::vision::{create_structuring_element, filter2d, median, KernelShape, MorphOptions, Morphology, Size};
+use std::time::Instant;
+
+fn bench(mut f: impl FnMut()) -> f64 {
+    for _ in 0..3 { f(); }
+    let mut t = Vec::new(); let st = Instant::now();
+    while t.len() < 5 || st.elapsed().as_millis() < 400 { let s = Instant::now(); f(); t.push(s.elapsed().as_secs_f64() * 1e3); }
+    t.sort_by(|a, b| a.partial_cmp(b).unwrap()); t[t.len() / 2]
+}
+fn main() {
+    let device = Device::default();
+    for (w, h) in [(1920usize, 1080usize), (3840, 2160)] {
+        let rgb: Vec<f32> = (0..3 * w * h).map(|i| (((i as u32).wrapping_mul(2654435761) >> 13) & 255) as f32).collect();
+        let img = Tensor::<4>::from_data(TensorData::new(rgb.clone(), [1, 3, h, w]), &device);
+        let gray = Tensor::<3>::from_data(TensorData::new(rgb[..w * h].to_vec(), [h, w, 1]), &device);
+        let k = Tensor::<2>::from_data(TensorData::new(vec![1.0f32 / 16., 2. / 16., 1. / 16., 2. / 16., 4. / 16., 2. / 16., 1. / 16., 2. / 16., 1. / 16.], [3, 3]), &device);
+        let se = create_structuring_element(KernelShape::Rect, Size::new(5, 5), None, &device);
+        let f2d = bench(|| { let o = filter2d(img.clone(), k.clone(), burn::tensor::ops::PadMode::Edge); device.sync().unwrap(); drop(o); });
+        let f2d_rt = bench(|| { let i = Tensor::<4>::from_data(TensorData::new(rgb.clone(), [1, 3, h, w]), &device); let o = filter2d(i, k.clone(), burn::tensor::ops::PadMode::Edge); std::hint::black_box(o.into_data()); });
+        let med = bench(|| { let o = median(img.clone(), 5); device.sync().unwrap(); drop(o); });
+        let ero = bench(|| { let o = gray.clone().erode(se.clone(), MorphOptions::default()); device.sync().unwrap(); drop(o); });
+        println!("{w}x{h}: filter2d3x3 resident {f2d:.3} ms, roundtrip {f2d_rt:.3} ms | median5 RGB resident {med:.3} ms | erode5x5 gray resident {ero:.3} ms");
+    }
+}

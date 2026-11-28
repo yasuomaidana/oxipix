@@ -1,0 +1,11 @@
+diff --git a/crates/kornia-algebra/Cargo.toml b/crates/kornia-algebra/Cargo.toml
+index 6c4b50e..cd28a8e 100644
+--- a/crates/kornia-algebra/Cargo.toml
++++ b/crates/kornia-algebra/Cargo.toml
+@@ -42,3 +42,6 @@ wide = { workspace = true }
+ 
+ [features]
+ approx = ["dep:approx"]
++
++[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
++getrandom = { version = "0.4", features = ["wasm_js"] }

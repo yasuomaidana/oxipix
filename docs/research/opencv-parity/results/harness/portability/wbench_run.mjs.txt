@@ -1,0 +1,9 @@
+// node run.mjs <pkg dir>: same protocol as main.rs (3 warm-ups, >=10 samples and >=300 ms, median).
+const m = await import(process.argv[2] + '/wbench.js');
+for (const op of m.ops().split(',')) {
+  let cs = 0; for (let i = 0; i < 3; i++) cs = m.run(op);
+  const t = []; const st = performance.now();
+  while (t.length < 10 || performance.now() - st < 300) { const s = performance.now(); m.run(op); t.push(performance.now() - s); }
+  t.sort((a, b) => a - b); const md = t[t.length >> 1]; const d = t.map(x => Math.abs(x - md)).sort((a, b) => a - b);
+  console.log(`${op} ${md.toFixed(3)} mad=${d[d.length >> 1].toFixed(3)} ${cs}`);
+}

@@ -41,12 +41,22 @@ RM-SPLIT is widened to that staged plan. Upstream-first still applies to `image`
 
 ## Alternatives considered
 
-- **Upstream PRs only (kornia-rs, imageproc).** Rejected: wgpu, opt-in threads and a wasm build are design changes
-  their maintainers have not signalled interest in. imageproc's generic API blocks fast paths.
+- **Upstream PRs only (kornia-rs, imageproc).** Rejected: wgpu and opt-in threads are design changes their
+  maintainers have not signalled interest in. A wasm build is a 3-line fix, but kornia has no wasm SIMD, so it is slow
+  there. imageproc's generic API blocks fast paths.
 - **Reimplement all of OpenCV.** Rejected: it repeats the failure recorded in ADR-0001, for modules where Rust crates
   are mature.
+- **A GPU framework or kernel language as the GPU layer (burn, candle, cubecl).** Measured in
+  [`06_PORTABILITY_AND_GPU_BACKENDS.md`](../research/opencv-parity/06_PORTABILITY_AND_GPU_BACKENDS.md).
+  - burn and candle: rejected for image kernels. burn-vision's ops are tensor compositions or CPU fallbacks, and candle
+    has no non-CUDA, non-Metal GPU backend.
+  - cubecl: evaluated only when a trigger fires (06 §5.2(d)). With pooling, oxipix's WGSL wins on round trips, and
+    cubecl leads by 1.2x to 1.5x on resident compute through WGSL.
+- **A non-CUDA backend inside kornia-rs.** Not depended on: it needs a storage redesign that its maintainers have not
+  approved. Only a scope question is proposed upstream.
 - **Depend on kornia-rs for imgproc.** Deferred: an operation can be delegated to kornia as a planning decision
-  (03 §4). This becomes the default if kornia gains optional threads and wasm.
+  (03 §4). This becomes the default if kornia gains optional threads and a wasm build whose `+simd128` performance passes the
+  same 1.5x gate as oxipix.
 
 ## Risks
 

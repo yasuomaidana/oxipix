@@ -1,0 +1,18 @@
+use std::time::Instant;
+fn main() {
+    let f = wbench::fixtures();
+    for op in wbench::OPS {
+        let mut cs = 0;
+        for _ in 0..3 { cs = wbench::run_once(&f, op); }
+        let mut t = Vec::new();
+        let start = Instant::now();
+        while t.len() < 10 || start.elapsed().as_millis() < 300 {
+            let s = Instant::now(); std::hint::black_box(wbench::run_once(&f, op)); t.push(s.elapsed().as_secs_f64() * 1e3);
+        }
+        t.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let m = t[t.len() / 2];
+        let mut d: Vec<f64> = t.iter().map(|x| (x - m).abs()).collect();
+        d.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        println!("{op} {m:.3} mad={:.3} {cs}", d[d.len() / 2]);
+    }
+}

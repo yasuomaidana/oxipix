@@ -1,0 +1,64 @@
+//! Same ops, same synthetic 1920x1080 frame, natively and in wasm. `run(op, iters)` returns a checksum.
+use image::{GrayImage, RgbImage};
+use kornia_image::{Image, ImageSize};
+use kornia_imgproc as kp;
+
+pub const W: u32 = 1920;
+pub const H: u32 = 1080;
+pub const OPS: &[&str] = &[
+    "k_box", "k_gauss", "k_median", "k_erode", "k_pyrdown", "k_warp", "k_canny",
+    "o_box", "o_gauss", "o_median", "o_erode", "o_pyrdown", "o_warp", "o_canny",
+];
+
+fn pat(x: u32, y: u32, c: u32) -> u8 {
+    let v = (x.wrapping_mul(7) ^ y.wrapping_mul(13)).wrapping_add(c * 85) ^ ((x * y) >> 5);
+    (v & 0xff) as u8
+}
+pub struct Fx { rgb: RgbImage, gray: GrayImage, krgb: Image<u8, 3>, kgray: Image<u8, 1> }
+pub fn fixtures() -> Fx {
+    let rgb = RgbImage::from_fn(W, H, |x, y| image::Rgb([pat(x, y, 0), pat(x, y, 1), pat(x, y, 2)]));
+    let gray = GrayImage::from_fn(W, H, |x, y| image::Luma([if pat(x, y, 0) > 128 { 255 } else { pat(x / 8, y / 8, 1) }]));
+    let s = ImageSize { width: W as usize, height: H as usize };
+    let krgb = Image::new(s, rgb.as_raw().clone()).unwrap();
+    let kgray = Image::new(s, gray.as_raw().clone()).unwrap();
+    Fx { rgb, gray, krgb, kgray }
+}
+fn sum(b: &[u8]) -> u64 { b.iter().map(|&v| v as u64).sum() }
+/// oxipix takes the destination->source map; kornia takes the forward (source->destination) map and inverts it.
+const ROT: [f32; 6] = [0.52, -0.3, 400.0, 0.3, 0.52, -100.0];
+fn inverse_affine(m: &[f32; 6]) -> [f32; 6] {
+    let det = m[0] * m[4] - m[1] * m[3];
+    let (a, b, d, e) = (m[4] / det, -m[1] / det, -m[3] / det, m[0] / det);
+    [a, b, -(a * m[2] + b * m[5]), d, e, -(d * m[2] + e * m[5])]
+}
+
+pub fn run_once(f: &Fx, op: &str) -> u64 {
+    let s3 = f.krgb.size();
+    match op {
+        "k_box" => { let mut d = Image::<u8, 3>::from_size_val(s3, 0).unwrap(); kp::filter::box_blur_u8(&f.krgb, &mut d, (5, 5)).unwrap(); sum(d.as_slice()) }
+        "k_gauss" => { let mut d = Image::<u8, 3>::from_size_val(s3, 0).unwrap(); kp::filter::gaussian_blur_u8(&f.krgb, &mut d, (5, 5), (1.1, 1.1)).unwrap(); sum(d.as_slice()) }
+        "k_median" => { let mut d = Image::<u8, 3>::from_size_val(s3, 0).unwrap(); kp::filter::median_blur(&f.krgb, &mut d, 5).unwrap(); sum(d.as_slice()) }
+        "k_erode" => { let k = kp::morphology::kernels::box_kernel(5); let mut d = Image::<u8, 1>::from_size_val(f.kgray.size(), 0).unwrap(); kp::morphology::erode(&f.kgray, &mut d, &k, kp::padding::PaddingMode::Replicate, [0]).unwrap(); sum(d.as_slice()) }
+        "k_pyrdown" => { let s = ImageSize { width: (W as usize).div_ceil(2), height: (H as usize).div_ceil(2) }; let mut d = Image::<u8, 3>::from_size_val(s, 0).unwrap(); kp::pyramid::pyrdown_u8(&f.krgb, &mut d).unwrap(); sum(d.as_slice()) }
+        "k_warp" => { let m = inverse_affine(&ROT); let mut d = Image::<u8, 3>::from_size_val(s3, 0).unwrap(); kp::warp::warp_affine_u8(&f.krgb, &mut d, &m).unwrap(); sum(d.as_slice()) }
+        "k_canny" => { let mut d = Image::<u8, 1>::from_size_val(f.kgray.size(), 0).unwrap(); kp::canny::canny(&f.kgray, &mut d, 50.0, 150.0, true).unwrap(); sum(d.as_slice()) }
+        "o_box" => sum(&oxipix::imgproc::blur::box_blur(&f.rgb, 2)),
+        "o_gauss" => sum(&oxipix::imgproc::blur::gaussian_blur_radius(&f.rgb, 1.1, 2)),
+        "o_median" => sum(&oxipix::imgproc::median::median_blur(&f.rgb, 2)),
+        "o_erode" => sum(&oxipix::imgproc::morph::erode(&f.gray, 2, 2)),
+        "o_pyrdown" => sum(&oxipix::imgproc::pyramid::pyr_down(&f.rgb)),
+        "o_warp" => sum(&oxipix::imgproc::warp::warp_affine(&f.rgb, &ROT, (W, H))),
+        "o_canny" => sum(&oxipix::imgproc::canny::canny(&f.gray, 50.0, 150.0)),
+        _ => 0,
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+mod js {
+    use wasm_bindgen::prelude::*;
+    thread_local!(static FX: super::Fx = super::fixtures());
+    #[wasm_bindgen]
+    pub fn run(op: &str) -> f64 { FX.with(|f| super::run_once(f, op) as f64) }
+    #[wasm_bindgen]
+    pub fn ops() -> String { super::OPS.join(",") }
+}

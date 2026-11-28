@@ -1,0 +1,97 @@
+//! 3x3 RGBA convolution, same semantics as oxipix CONVOLUTION_2D_WGSL (clamped border, f32 accumulate,
+//! truncating u32(clamp)). Compares: oxipix hand-written WGSL (round trip only: its API has no resident image),
+//! cubecl on wgpu (resident and round trip), and the oxipix CPU reference.
+use cubecl::prelude::*;
+use std::time::Instant;
+
+#[cube(launch_unchecked)]
+fn conv3x3(input: &[u32], k: &[f32], output: &mut [u32], width: u32, height: u32) {
+    let x = ABSOLUTE_POS_X;
+    let y = ABSOLUTE_POS_Y;
+    if x < width && y < height {
+        let mut r = 0.0f32;
+        let mut g = 0.0f32;
+        let mut b = 0.0f32;
+        for dy in 0..3u32 {
+            let yy = clamp_u(y + dy, 1, height);
+            for dx in 0..3u32 {
+                let xx = clamp_u(x + dx, 1, width);
+                let p = input[(yy * width + xx) as usize];
+                let w = k[(dy * 3 + dx) as usize];
+                r += f32::cast_from(p & 255u32) * w;
+                g += f32::cast_from((p >> 8u32) & 255u32) * w;
+                b += f32::cast_from((p >> 16u32) & 255u32) * w;
+            }
+        }
+        let a = input[(y * width + x) as usize] >> 24u32;
+        let ro = u32::cast_from(clamp(r, 0.0, 255.0));
+        let go = u32::cast_from(clamp(g, 0.0, 255.0));
+        let bo = u32::cast_from(clamp(b, 0.0, 255.0));
+        output[(y * width + x) as usize] = ro | (go << 8u32) | (bo << 16u32) | (a << 24u32);
+    }
+}
+
+/// Clamp `v - off` (v offset by one tap) into [0, n).
+#[cube]
+fn clamp_u(v: u32, off: u32, n: u32) -> u32 {
+    let mut out = 0u32;
+    if v >= off {
+        out = v - off;
+    }
+    if out >= n {
+        out = n - 1;
+    }
+    out
+}
+
+fn median(mut t: Vec<f64>) -> f64 { t.sort_by(|a, b| a.partial_cmp(b).unwrap()); t[t.len() / 2] }
+fn bench(mut f: impl FnMut()) -> f64 {
+    for _ in 0..3 { f(); }
+    let mut t = Vec::new(); let st = Instant::now();
+    while t.len() < 10 || st.elapsed().as_millis() < 400 { let s = Instant::now(); f(); t.push(s.elapsed().as_secs_f64() * 1e3); }
+    median(t)
+}
+
+fn main() {
+    let kernel: [f32; 9] = [1.0 / 16.0, 2.0 / 16.0, 1.0 / 16.0, 2.0 / 16.0, 4.0 / 16.0, 2.0 / 16.0, 1.0 / 16.0, 2.0 / 16.0, 1.0 / 16.0];
+    let ox = oxipix::gpu::GpuContext::new().expect("oxipix gpu");
+    println!("adapter(oxipix wgpu): {}", ox.adapter_name());
+    let device = cubecl::Device::default();
+    let client = device.client();
+    println!("cubecl runtime: {:?}", client.name());
+    for (w, h) in [(1920u32, 1080u32), (3840, 2160)] {
+        let rgba: Vec<u8> = (0..w * h * 4).map(|i| ((i.wrapping_mul(2654435761)) >> 13) as u8).collect();
+        let n = (w * h) as usize;
+        let cpu_ms = bench(|| { std::hint::black_box(oxipix::gpu::cpu::convolve3x3(&rgba, w, h, &kernel)); });
+        let cpu = oxipix::gpu::cpu::convolve3x3(&rgba, w, h, &kernel);
+        let ox_ms = bench(|| { std::hint::black_box(ox.convolve3x3(&rgba, w, h, &kernel).unwrap()); });
+        let oxo = ox.convolve3x3(&rgba, w, h, &kernel).unwrap();
+
+        let kh = client.create_from_slice(f32::as_bytes(&kernel));
+        let launch = |inp: &cubecl::server::Handle, out: &cubecl::server::Handle| unsafe {
+            conv3x3::launch_unchecked(
+                &client,
+                CubeCount::Static(w.div_ceil(16), h.div_ceil(16), 1),
+                CubeDim::new_2d(16, 16),
+                BufferArg::from_raw_parts(inp.clone(), n),
+                BufferArg::from_raw_parts(kh.clone(), 9),
+                BufferArg::from_raw_parts(out.clone(), n),
+                w, h,
+            )
+        };
+        // Resident: input and output stay on the device; time launch + sync.
+        let inp = client.create_from_slice(&rgba);
+        let out = client.empty(n * 4);
+        let cc_res = bench(|| { launch(&inp, &out); pollster::block_on(client.sync()).unwrap(); });
+        // Round trip: upload, launch, read back (what oxipix's API does every call).
+        let cc_rt = bench(|| { let i = client.create_from_slice(&rgba); let o = client.empty(n * 4); launch(&i, &o); std::hint::black_box(client.read_one(o).unwrap()); });
+        launch(&inp, &out);
+        let cco = client.read_one(out.clone()).unwrap().to_vec();
+
+        let diff = |a: &[u8], b: &[u8]| a.iter().zip(b).filter(|(x, y)| (**x as i32 - **y as i32).abs() > 1).count();
+        let exact = |a: &[u8], b: &[u8]| a == b;
+        println!("{w}x{h}: cpu {cpu_ms:.3} ms | oxipix-wgsl roundtrip {ox_ms:.3} ms | cubecl resident {cc_res:.3} ms, roundtrip {cc_rt:.3} ms");
+        println!("  parity vs cpu: wgsl exact={} (>1 diffs {}), cubecl exact={} (>1 diffs {})",
+            exact(&oxo, &cpu), diff(&oxo, &cpu), exact(&cco, &cpu), diff(&cco, &cpu));
+    }
+}

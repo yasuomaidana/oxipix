@@ -52,7 +52,7 @@ functionality at similar or better speed. Or are upstream changes to the existin
    | At parity | `warpAffine` |
    | 100x or more slower | 3-channel median, erosion |
 
-   Its rayon dependency is mandatory, its GPU support is CUDA only, and it does not build for `wasm32`
+   Its rayon dependency is mandatory, its GPU support is CUDA only, and it needs a 3-line patch to build for `wasm32`, with no wasm SIMD
    ([01](01_LANDSCAPE.md)).
 3. **No single upstream crate meets the requirements: opt-in threads, wgpu, WebAssembly and OpenCV-level speed.**
    - imageproc is slow by design: generic `Pixel` code, and erosion through a distance transform.
@@ -66,6 +66,20 @@ functionality at similar or better speed. Or are upstream changes to the existin
    main modules plus ml, now in contrib) are glue around problems that other crates already solve:
    - codecs, video I/O, DNN, GUI, ml and flann have several mature crates each;
    - most of calib and 3D is covered by kornia-rs.
+5. **Portability favours oxipix's approach. Making kornia portable, or adopting a GPU framework, does not get there**
+   ([06](06_PORTABILITY_AND_GPU_BACKENDS.md)).
+   - **kornia and wasm.** kornia builds for wasm with a 3-line patch, but it has no wasm SIMD. Its box and Gaussian run
+     16x to 17x slower there. oxipix's safe Rust, which the compiler vectorises, stays within 1.8x of native with
+     `simd128` on 5 of 7 ops.
+   - **kornia and non-CUDA GPUs.** A non-CUDA GPU path in kornia needs a storage redesign its maintainers have not
+     approved: they removed CubeCL in July 2026.
+   - **burn and candle.** burn-vision's image ops are tensor compositions or CPU fallbacks. candle has no non-CUDA,
+     non-Metal GPU backend.
+   - **oxipix's own GPU path.** With pooled buffers, oxipix's own WGSL wins on round trips. cubecl leads on resident
+     compute by 1.2x to 1.5x through the browser's WGSL path, so it gets a defined evaluation protocol, run only when a
+     trigger fires.
+   - **Cross-compilation.** oxipix cross-checks on Linux (x86_64, aarch64), Windows, Android and wasm32. Its `gpu`
+     feature builds for wasm with one wgpu feature.
 
 ## Proposed recommendation (pending ADR-0005): build the kernels, delegate the rest
 
@@ -74,7 +88,8 @@ functionality at similar or better speed. Or are upstream changes to the existin
 | imgproc (with features), photo, video background subtraction | **Build in oxipix** using the architecture in [04](04_ARCHITECTURE.md), continuing the `imgproc` work. Photo starts with what RM-ENHANCE (OXI-85, the receipt-enhancement roadmap item) needs. Video waits for a ticket with a consumer. |
 | imgcodecs, videoio, dnn, ml, flann, highgui | **Delegate**: thin optional adapters over `image`/`zune`, `ffmpeg-next`/GStreamer, `burn`/`tract`/`ort`, `linfa`, `kiddo`, `minifb`/`egui`/`rerun`. |
 | calib, geometry, stereo, ptcloud; Lucas-Kanade optical flow | **Reuse kornia-rs** and send fixes upstream. |
-| Upstream | PRs to kornia-rs: 3-channel median, separable morphology, a `wasm32` build fix, optional rayon. Bug reports to oximedia-cv. kornia-rs and oxipix `imgproc` added as backends in the rust-cv-guide harness. |
+| GPU and wasm portability | Finish oxipix's own wgpu layer: async context for the browser, pooled buffers, a resident `GpuImage`, lavapipe CI. cubecl is evaluated only when a trigger fires. burn and candle are for DNN only ([06](06_PORTABILITY_AND_GPU_BACKENDS.md)). |
+| Upstream | PRs to kornia-rs: 3-channel median, separable morphology, a `wasm32` build fix (3 lines, measured), optional rayon. Bug reports to oximedia-cv. kornia-rs and oxipix `imgproc` added as backends in the rust-cv-guide harness. |
 | Guardrail | An operation is called "at parity" only after the golden-output and performance gates pass ([04](04_ARCHITECTURE.md) §9). |
 
 [03](03_UPSTREAM_VS_NEW.md) gives the decision for each module, [04](04_ARCHITECTURE.md) the architecture (revision 2,
